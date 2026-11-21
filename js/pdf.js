@@ -26,6 +26,7 @@ export async function renderPage(doc, n, canvas) {
   const base = page.getViewport({ scale: 1 });
   const scale = Math.min(2.5, (w / base.width) * (window.devicePixelRatio || 1));
   const vp = page.getViewport({ scale });
+  canvas.dir = "ltr"; // the app is RTL; an RTL canvas scrambles Arabic text drawn by PDF.js
   canvas.width = vp.width; canvas.height = vp.height;
   canvas.style.width = Math.min(w, vp.width / (window.devicePixelRatio || 1)) + "px";
   await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;

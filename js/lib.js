@@ -18,7 +18,7 @@ export function friendly(e) {
   if (/Invalid login credentials/i.test(m)) return "البريد أو كلمة المرور غير صحيحة";
   if (/already registered|already exists/i.test(m)) return "هذا البريد مسجّل مسبقًا";
   if (/Password should be/i.test(m)) return "كلمة المرور قصيرة (6 أحرف على الأقل)";
-  if (/Email not confirmed/i.test(m)) return "فعّل بريدك من الرسالة اللي وصلتك أولًا";
+  if (/Email not confirmed/i.test(m)) return "فعّل بريدك من الرسالة التي وصلتك أولًا";
   if (/Failed to fetch|NetworkError/i.test(m)) return "تعذّر الاتصال. تحقق من الإنترنت";
   return m.replace(/^.*?:\s*/, "") || "حدث خطأ غير متوقع";
 }

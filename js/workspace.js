@@ -6,13 +6,14 @@ const HINTS = [
   [/(\w+) is not defined/, (m) => `المتغيّر أو الدالة «${m[1]}» غير معرَّف. راجِع الاسم حرفًا حرفًا، فقد يكون فيه حرف ناقص أو زائد، أو لم تعرّفه قبل استخدامه.`],
   [/Unexpected end of input/, () => "انتهى الكود قبل أن يكتمل: غالبًا يوجد قوس { أو ( مفتوح لم يُغلق."],
   [/Unexpected token/, () => "يوجد رمز في غير مكانه، مثل قوس زائد أو فاصلة ناقصة. انظر للسطر المذكور وما قبله."],
-  [/missing \) after argument list/, () => "قوس ) ناقص بعد قيم الدالة. تأكد أن كل ( لها ) تقفلها."],
+  [/missing \) after argument list/, () => "قوس ) ناقص بعد قيم الدالة. تأكد أن كل ( لها ) تُغلقها."],
   [/Cannot read propert(y|ies) of (null|undefined)/, () => "تحاول القراءة من عنصر غير موجود. تحقق أن الـ id في HTML يطابق الموجود في JavaScript، وأن السكربت بعد العنصر."],
   [/Cannot set propert(y|ies) of (null|undefined)/, () => "تحاول تغيير عنصر غير موجود في الصفحة. تحقق من تطابق الـ id."],
   [/is not a function/, () => "تستدعي شيئًا كأنه دالة وهو ليس دالة. راجع اسم الدالة وطريقة كتابتها (الحروف الكبيرة والصغيرة مهمة)."],
   [/Assignment to constant variable/, () => "تحاول تغيير قيمة متغيّر معرّف بـ const. استخدم let إذا كانت القيمة تتغيّر."],
   [/Infinite loop/, () => "الحلقة لا تتوقف أبدًا، لذلك أوقفناها حتى لا تتجمّد الصفحة. تأكد أن الشرط يصبح false في وقت ما، مثل زيادة المتغيّر أو إنقاصه داخل الحلقة."],
-  [/Invalid or unexpected token/, () => "يوجد حرف غير مفهوم، غالبًا علامة تنصيص مفتوحة وما انقفلت."],
+  [/browser hid the details/, () => "حدث خطأ أثناء التشغيل ولم يُظهر المتصفح تفاصيله. راجِع آخر جزء عدّلته في الكود، وتأكد من الأقواس وعلامات التنصيص وأسماء المتغيّرات."],
+  [/Invalid or unexpected token/, () => "يوجد حرف غير مفهوم، غالبًا علامة تنصيص مفتوحة ولم تُغلق."],
 ];
 export function localHint(msg) {
   for (const [re, fn] of HINTS) { const m = msg.match(re); if (m) return fn(m); }
@@ -23,16 +24,35 @@ export function localHint(msg) {
 // The check is added on the same line, so error line numbers do not move.
 const STOP = 'if(__nl())throw new RangeError("Infinite loop: the loop never stops");';
 function protectJs(js) {
-  return js
+  const guarded = js
     .replace(/\b(for|while)\s*\(((?:[^()]|\([^()]*\))*)\)\s*\{/g, (m) => m + STOP)
     .replace(/\bdo\s*\{/g, (m) => m + STOP);
+  // try/catch gives the real error object. Safari hides it ("Script error.") when it only reaches window.onerror.
+  return "try{" + guarded + "\n}catch(__e){__rep(__e)}";
 }
 export function protect(code, isJs) {
   return isJs ? protectJs(code) : code.replace(/(<script\b[^>]*>)([\s\S]*?)(<\/script>)/gi, (m, a, b, c) => a + protectJs(b) + c);
 }
+// Syntax errors stop a script before try/catch can run, so check them here first (nothing is executed).
+function syntaxCheck(code, isJs) {
+  const blocks = [];
+  if (isJs) blocks.push({ js: code, start: 1 });
+  else code.replace(/(<script\b[^>]*>)([\s\S]*?)<\/script>/gi, (m, a, b, i) => {
+    if (!/\bsrc\s*=/i.test(a)) blocks.push({ js: b, start: code.slice(0, i + a.length).split("\n").length });
+  });
+  for (const b of blocks) {
+    try { new Function(b.js); } catch (e) {
+      if (!(e instanceof SyntaxError)) continue;
+      const l = e.line || e.lineNumber; // Safari / Firefox give a line; the function wrapper adds 2 lines
+      return { m: "SyntaxError: " + e.message, line: l ? b.start + Math.max(0, l - 3) : 0 };
+    }
+  }
+  return null;
+}
 
 const GUARD = `<script>
 var __n=0,__s=0;function __nl(){if(++__n>100000){__n=0;return true}if(!__s){__s=1;Promise.resolve().then(function(){__n=0;__s=0})}return false}
+function __rep(e){var l=e&&(e.line||e.lineNumber);if(!l&&e&&e.stack){var x=String(e.stack).match(/srcdoc:(\\d+)/);if(x)l=+x[1]}parent.postMessage({nawa:'err',m:e&&e.name?e.name+': '+e.message:String(e),l:l||0},'*')}
 window.onerror=function(m,s,l){parent.postMessage({nawa:'err',m:String(m).replace(/^Uncaught /,''),l:l},'*');return true};
 (function(){var out=[],pend=0;function show(){var c=document.getElementById('__nawa_console');if(!c){c=document.createElement('pre');c.id='__nawa_console';c.style.cssText='margin:8px 0 0;padding:8px;background:#16181D;color:#BCD13C;border-radius:8px;font:13px/1.5 monospace;white-space:pre-wrap;direction:ltr;text-align:left';(document.body||document.documentElement).appendChild(c)}c.textContent=out.join('\\n')}
 var L=console.log;console.log=function(){var a=[].map.call(arguments,function(x){try{return typeof x==='object'?JSON.stringify(x):String(x)}catch(e){return String(x)}}).join(' ');if(out.length>=500)return;out.push(a);if(!pend){pend=1;setTimeout(function(){pend=0;show()},0)}L.apply(console,arguments)}})();
@@ -67,18 +87,26 @@ export function mountWorkspace(root, { code = "", onChange, onError, typed = 0, 
     const isJs = !/<[a-z!]/i.test(ed.value); // plain JS without tags runs as a script
     const head = '<!doctype html><meta charset="utf-8"><body style="font-family:system-ui;padding:8px">' + GUARD;
     st.offset = head.split("\n").length - 1 + (isJs ? 1 : 0); // so error lines match the editor
+    st.syntax = syntaxCheck(ed.value, isJs);
+    if (st.syntax) showErr(st.syntax.m, st.syntax.line);
     pv.srcdoc = head + (isJs ? "<script>\n" + protect(ed.value, true) + "\n<\/script>" : protect(ed.value, false)) + "</body>";
   };
   const onMsg = (e) => {
     if (e.source !== pv.contentWindow || !e.data || !e.data.nawa) return;
     if (e.data.nawa === "out") st.output = e.data.t;
     if (e.data.nawa === "err") {
-      const msg = e.data.m, lineNo = Math.max(1, (e.data.l || 1) - (st.offset || 0));
+      const msg = e.data.m;
+      if (st.syntax && /SyntaxError|^Script error/i.test(msg)) return; // already shown from the syntax check
+      showErr(msg, e.data.l ? Math.max(1, e.data.l - (st.offset || 0)) : 0);
+    }
+  };
+  const showErr = (msg, lineNo) => {
+      if (/^Script error\.?$/i.test(msg)) msg = "Error: the browser hid the details of this error";
       st.errors.push(msg);
-      const lineCode = ed.value.split("\n")[lineNo - 1] || "";
+      const lineCode = lineNo ? ed.value.split("\n")[lineNo - 1] || "" : "";
       const local = localHint(msg);
-      errBox.innerHTML = `<div class="err"><code>${esc(msg)} (line ${lineNo})</code>
-        <span class="small"><b>بالعربي:</b> <span data-w="exp">${local ? esc(local) : "…"}</span></span>
+      errBox.innerHTML = `<div class="err"><code>${esc(msg)}${lineNo ? ` (line ${lineNo})` : ""}</code>
+        <span class="small"><b>بالعربية:</b> <span data-w="exp">${local ? esc(local) : "…"}</span></span>
         ${local ? "" : `<button class="btn plain sm" data-w="ask" style="align-self:flex-start">اشرح لي الخطأ</button>`}
         <span class="ai-note">رسالة الخطأ الأصلية تبقى بالإنجليزية لتتعلّم المصطلح. الشرح والتلميح بدون الحل.</span></div>`;
       onError && onError(msg);
@@ -89,7 +117,6 @@ export function mountWorkspace(root, { code = "", onChange, onError, typed = 0, 
           $('[data-w="exp"]', errBox).textContent = r.explain; ask.outerHTML = `<span class="small"><b>تلميح:</b> ${esc(r.hint)}</span><span class="ai-note">شرح من الذكاء الاصطناعي، راجِعه.</span>`;
         } catch (er) { ask.disabled = false; ask.textContent = "اشرح لي الخطأ"; $('[data-w="exp"]', errBox).textContent = er.message; }
       };
-    }
   };
   window.addEventListener("message", onMsg);
   upd();

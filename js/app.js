@@ -55,7 +55,7 @@ route("/login", () => {
       <label class="f">البريد الإلكتروني<input class="f" name="email" type="email" required autocomplete="email" dir="ltr"></label>
       <label class="f">كلمة المرور<input class="f" name="password" type="password" required autocomplete="current-password" dir="ltr"></label>
       <button class="btn">دخول</button><p class="tiny muted" id="msg"></p></form>
-    <a class="btn plain" href="#/signup">ما عندي حساب</a></main>`;
+    <a class="btn plain" href="#/signup">ليس لدي حساب</a></main>`;
   $("#f").onsubmit = async (e) => {
     e.preventDefault(); const f = new FormData(e.target); const b = $("button", e.target); b.disabled = true;
     const { error } = await sb.auth.signInWithPassword({ email: f.get("email").trim(), password: f.get("password") });
@@ -106,7 +106,7 @@ function currentClass(list) {
 
 route("/t/join", async () => {
   await loadMe(); if (!need("trainee")) return;
-  const m = shell("t", "/t", `<div class="card"><h2>الانضمام لفصل</h2><p class="small muted">اكتب الرمز اللي يعرضه المدرب (6 خانات).</p>
+  const m = shell("t", "/t", `<div class="card"><h2>الانضمام لفصل</h2><p class="small muted">اكتب الرمز الذي يعرضه المدرب (6 خانات).</p>
     <form id="f" class="row"><input class="f grow" name="code" required maxlength="6" dir="ltr" style="text-transform:uppercase;letter-spacing:.2em;font-family:var(--f-mono)" placeholder="K3W9TB"><button class="btn">انضمام</button></form><p class="tiny muted" id="msg"></p></div>`, "narrow");
   $("#f", m).onsubmit = async (e) => {
     e.preventDefault(); const code = new FormData(e.target).get("code");
@@ -139,7 +139,7 @@ route("/t", async () => {
       ${list.length > 1 ? `<select class="f" id="cls" style="width:auto">${list.map((c) => `<option value="${c.id}" ${c.id === cls.id ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>` : ""}</div>
     <div class="card" id="live">${cls.live_slide ? `<span class="chip live" style="align-self:flex-start"><span class="dot"></span> الجلسة مباشرة الآن</span><p class="small">المدرب على الشريحة ${cls.live_slide}. افتح المحاضرة وتابع معه.</p>${lecs?.[0] ? `<a class="btn live" href="#/t/lecture/${lecs[0].id}">فتح المحاضرة</a>` : ""}` : `<span class="chip" style="align-self:flex-start">لا توجد جلسة الآن</span><p class="small muted">عند بدء الجلسة يظهر تنبيه هنا.</p>`}</div>
     <h3>المطلوب منك</h3>
-    <div class="list">${todo.length ? todo.map(taskRow).join("") : `<div class="empty">ما عندك تمارين مفتوحة 👏</div>`}</div>
+    <div class="list">${todo.length ? todo.map(taskRow).join("") : `<div class="empty">لا توجد تمارين مفتوحة 👏</div>`}</div>
     ${lecs?.length ? `<h3>المحاضرات</h3><div class="list">${lecs.map((l) => `<a href="#/t/lecture/${l.id}">${ICON.slides}<div class="grow t">${esc(l.title)}</div><span class="tiny muted">${ago(l.created_at)}</span></a>`).join("")}</div>` : ""}`);
   const sel = $("#cls", m); if (sel) sel.onchange = () => { localStorage.setItem("nawa.class", sel.value); render(); };
   const ch = sb.channel("cls-" + cls.id).on("postgres_changes", { event: "UPDATE", schema: "public", table: "classes", filter: `id=eq.${cls.id}` }, () => render()).subscribe();
@@ -151,7 +151,7 @@ route("/t/tasks", async () => {
   const list = await myClasses(); if (!list.length) return go("/t/join");
   const tasks = await loadTasksWithStatus(currentClass(list));
   const topics = [...new Set(tasks.map((t) => t.topic))];
-  shell("t", "/t/tasks", `<h1>التمارين</h1>${topics.length ? topics.map((tp) => `<h3>${esc(tp)}</h3><div class="list">${tasks.filter((t) => t.topic === tp).map(taskRow).join("")}</div>`).join("") : `<div class="card empty">ما وصلتك تمارين بعد.</div>`}`);
+  shell("t", "/t/tasks", `<h1>التمارين</h1>${topics.length ? topics.map((tp) => `<h3>${esc(tp)}</h3><div class="list">${tasks.filter((t) => t.topic === tp).map(taskRow).join("")}</div>`).join("") : `<div class="card empty">لم تصلك تمارين بعد.</div>`}`);
 });
 
 route("/t/task/:id", async ({ id }) => {
@@ -201,7 +201,7 @@ route("/t/task/:id", async ({ id }) => {
       const r = await ai("grade", { submission_id: s2.id, output_text: output, errors });
       $("#result", m).innerHTML = resultHTML({ ...s2, ai_verdict: r.verdict, ai_feedback: r.feedback, submitted_at: s2.submitted_at });
     } catch (er) {
-      $("#result", m).innerHTML = `<div class="card"><span class="chip ok" style="align-self:flex-start">تم التسليم</span><p class="small muted">التقييم الآلي غير متاح الآن (${esc(er.message)}). المدرب يشوف حلّك.</p></div>`;
+      $("#result", m).innerHTML = `<div class="card"><span class="chip ok" style="align-self:flex-start">تم التسليم</span><p class="small muted">التقييم الآلي غير متاح الآن (${esc(er.message)}). وسيطّلع المدرب على حلّك.</p></div>`;
     }
     b.disabled = false; b.textContent = "إعادة التسليم";
   };
@@ -269,7 +269,7 @@ route("/t/practice", async () => {
   const tasks = await loadTasksWithStatus(currentClass(list));
   const topics = [...new Set(tasks.map((t) => t.topic))];
   const m = shell("t", "/t/practice", `<h1>التدريب</h1><p class="small muted">اختبارات قصيرة بدون درجة، يولّدها الذكاء الاصطناعي من مواضيع فصلك.</p>
-    <div class="btns" id="topics">${topics.length ? topics.map((t) => `<button class="btn ghost" data-t="${esc(t)}">${esc(t)}</button>`).join("") : `<span class="muted small">تظهر المواضيع بعد ما يرسل المدرب تمارين.</span>`}</div>
+    <div class="btns" id="topics">${topics.length ? topics.map((t) => `<button class="btn ghost" data-t="${esc(t)}">${esc(t)}</button>`).join("") : `<span class="muted small">تظهر المواضيع بعد أن يرسل المدرب التمارين.</span>`}</div>
     <div id="quiz" class="quiz"></div>`, "narrow");
   $$("#topics button", m).forEach((b) => (b.onclick = async () => {
     const box = $("#quiz", m); box.innerHTML = `<div class="card"><span class="spinner"></span></div>`;
@@ -294,7 +294,7 @@ function meView(role) {
       <form class="card" id="f"><label class="f">الاسم<input class="f" name="name" value="${esc(me.full_name)}" maxlength="60"></label><button class="btn plain">حفظ</button></form>
       <div class="card"><span class="small muted">البريد</span><span dir="ltr" style="text-align:end">${esc(me.email)}</span><span class="small muted">نوع الحساب: ${me.role === "trainer" ? "مدرب" : "متدرب"}</span></div>
       ${role === "t" ? `<a class="btn plain" href="#/t/join">+ الانضمام لفصل آخر</a>` : ""}
-      <div class="card small"><b>خصوصيتك</b><p class="muted">لا نرسل اسمك أو بريدك للذكاء الاصطناعي، فقط نص التمرين والكود ورسالة الخطأ. المدرب يشوف فصله فقط.</p></div>
+      <div class="card small"><b>خصوصيتك</b><p class="muted">لا نرسل اسمك أو بريدك للذكاء الاصطناعي، فقط نص التمرين والكود ورسالة الخطأ. ولا يطّلع المدرب إلا على فصله.</p></div>
       <button class="btn danger" id="out">تسجيل الخروج</button>`, "narrow");
     $("#f", m).onsubmit = async (e) => { e.preventDefault(); const { error } = await sb.from("profiles").update({ full_name: new FormData(e.target).get("name").trim() }).eq("id", me.id); toast(error ? friendly(error) : "تم الحفظ"); };
     $("#out", m).onclick = async () => { await sb.auth.signOut(); me = null; go("/welcome"); };
@@ -347,7 +347,7 @@ route("/m/class/:id", async ({ id }) => {
   const end = $("#end", m); if (end) end.onclick = async () => { await sb.from("classes").update({ live_slide: null }).eq("id", id); render(); };
   $("#up", m).onsubmit = async (e) => {
     e.preventDefault(); const f = new FormData(e.target); const file = f.get("file"); const b = $("button", e.target);
-    if (file.type !== "application/pdf") return ($("#upmsg").textContent = "الملف لازم يكون PDF");
+    if (file.type !== "application/pdf") return ($("#upmsg").textContent = "يجب أن يكون الملف PDF");
     if (file.size > 15 * 1024 * 1024) return ($("#upmsg").textContent = "الملف أكبر من 15 ميجا");
     b.disabled = true; b.innerHTML = '<span class="spinner"></span> جارٍ الرفع';
     const path = `${id}/${crypto.randomUUID()}.pdf`;
@@ -392,12 +392,12 @@ route("/m/lecture/:id", async ({ id }) => {
     <div class="ws">
       <section class="pane"><div class="slidebox"><canvas id="cv"></canvas></div>
         <div class="slidenav"><button class="btn plain sm" id="prev">›</button><span class="grow small muted" id="pg" style="text-align:center"></span><button class="btn plain sm" id="next">‹</button></div>
-        <p class="tiny muted" id="livehint">${live ? "المتدربون اللي فعّلوا «متابعة شريحة المدرب» يتنقلون معك." : "ابدأ الجلسة عشان المتدربين يتابعون الشريحة معك."}</p></section>
+        <p class="tiny muted" id="livehint">${live ? "المتدربون الذين فعّلوا «متابعة شريحة المدرب» يتنقلون معك." : "ابدأ الجلسة ليتابع المتدربون الشريحة معك."}</p></section>
       <section class="pane">
         <div class="card"><div class="row"><h3 class="grow">المواضيع</h3><button class="btn ghost sm" id="extract">${lec.topics?.length ? "إعادة الاستخراج" : "استخراج المواضيع بالذكاء"}</button></div>
           <div id="topics">${topicsHTML(lec.topics)}</div>
           <button class="btn" id="gen" ${lec.topics?.length ? "" : "hidden"}>توليد تمارين للمواضيع المختارة</button>
-          <p class="ai-note">المواضيع والتمارين اقتراحات من الذكاء الاصطناعي. أنت تراجعها وتعدّلها وتقرر ترسلها أو لا.</p></div>
+          <p class="ai-note">المواضيع والتمارين اقتراحات من الذكاء الاصطناعي. أنت تراجعها وتعدّلها وتقرر إرسالها أو لا.</p></div>
         <div id="drafts"></div>
       </section>
     </div>`, "wide");
@@ -406,14 +406,14 @@ route("/m/lecture/:id", async ({ id }) => {
   const slReady = mountSlides(m, lec.file_path, lec.classes.live_slide || 1, { onPage: setLive }).then((x) => (sl = x)); // buttons work while the PDF loads
   $("#live", m).onclick = async () => {
     await sb.from("classes").update({ live_slide: live ? null : sl?.page || 1 }).eq("id", lec.class_id);
-    toast(live ? "انتهت الجلسة" : "بدأت الجلسة، والمتدربون يشوفون التنبيه"); render();
+    toast(live ? "انتهت الجلسة" : "بدأت الجلسة، وسيظهر التنبيه للمتدربين"); render();
   };
   const doExtract = async () => {
     const b = $("#extract", m); b.disabled = true; b.innerHTML = '<span class="spinner"></span> يقرأ المحاضرة';
     try {
       await slReady; if (!sl) throw new Error("تعذّر فتح ملف المحاضرة");
       const text = await extractText(sl.doc);
-      if (text.replace(/\[صفحة \d+\]|\s/g, "").length < 40) throw new Error("ما قدرنا نقرأ نص من الملف (يمكن صور فقط). أضف التمارين يدويًا.");
+      if (text.replace(/\[صفحة \d+\]|\s/g, "").length < 40) throw new Error("تعذّرت قراءة نص من الملف (ربما يحتوي صورًا فقط). أضف التمارين يدويًا.");
       const { topics } = await ai("topics", { lecture_id: id, text });
       lec.topics = topics; $("#topics", m).innerHTML = topicsHTML(topics); $("#gen", m).hidden = !topics.length;
     } catch (e) { toast(e.message, 4000); }
@@ -437,7 +437,7 @@ route("/m/lecture/:id", async ({ id }) => {
       $("#send", m).onclick = async () => {
         const rows = $$("[data-pick]:checked", m).map((x) => ({ ...readTask($(`[data-task="${x.dataset.pick}"]`, m)), class_id: lec.class_id, lecture_id: id, target_user: to === "one" ? $("#who", m).value : null }));
         if (!rows.length) return toast("اختر تمرينًا واحدًا على الأقل");
-        if (to === "one" && !$("#who", m).value) return toast("ما فيه متدربين في الفصل بعد");
+        if (to === "one" && !$("#who", m).value) return toast("لا يوجد متدربون في الفصل بعد");
         const { error } = await sb.from("tasks").insert(rows);
         if (error) return toast(friendly(error));
         toast(`أُرسل ${rows.length} تمرين`); go("/m/class/" + lec.class_id);
@@ -446,7 +446,7 @@ route("/m/lecture/:id", async ({ id }) => {
     b.disabled = false; b.textContent = "توليد تمارين للمواضيع المختارة";
   };
 });
-const topicsHTML = (ts) => ts?.length ? ts.map((t, i) => `<label class="row small" style="align-items:flex-start"><input type="checkbox" value="${i}" checked style="margin-top:5px"><span class="grow"><b>${esc(t.topic)}</b> <span class="tiny muted">ص ${t.page ?? "—"}</span><br><span class="muted">${esc(t.summary)}</span></span></label>`).join("") : `<p class="small muted">ما استُخرجت مواضيع بعد.</p>`;
+const topicsHTML = (ts) => ts?.length ? ts.map((t, i) => `<label class="row small" style="align-items:flex-start"><input type="checkbox" value="${i}" checked style="margin-top:5px"><span class="grow"><b>${esc(t.topic)}</b> <span class="tiny muted">ص ${t.page ?? "—"}</span><br><span class="muted">${esc(t.summary)}</span></span></label>`).join("") : `<p class="small muted">لم تُستخرج مواضيع بعد.</p>`;
 
 route("/m/task/:id", async ({ id }) => {
   loading(); await loadMe(); if (!need("trainer")) return;
@@ -465,7 +465,7 @@ route("/m/task/:id", async ({ id }) => {
       const p = s ? pct(s.typed_chars, s.pasted_chars) : null;
       const inner = `<div class="grow"><div class="t">${esc(name)}</div><div class="tiny muted">${!s ? "لم يفتح التمرين" : s.submitted_at ? `كتابة يدوية ${p ?? "—"}% · وقت الحل ${fmtMin(Math.round((new Date(s.submitted_at) - new Date(s.opened_at)) / 60000))}${s.pasted_chars ? " · يوجد لصق" : ""}` : "قيد الحل الآن"}</div></div>
         ${s?.submitted_at ? vchip(s.ai_verdict) || `<span class="chip ok">تم التسليم</span>` : `<span class="chip">${s ? "قيد الحل" : "لم يبدأ"}</span>`}`;
-      return s?.submitted_at ? `<a href="#/m/sub/${s.id}">${inner}</a>` : `<div>${inner}</div>`; }).join("") : `<div class="empty">ما فيه متدربين في الفصل بعد.</div>`}</div>`, "narrow");
+      return s?.submitted_at ? `<a href="#/m/sub/${s.id}">${inner}</a>` : `<div>${inner}</div>`; }).join("") : `<div class="empty">لا يوجد متدربون في الفصل بعد.</div>`}</div>`, "narrow");
 });
 
 route("/m/sub/:id", async ({ id }) => {
@@ -506,7 +506,7 @@ route("/m/class/:id/dash", async ({ id }) => {
   // group errors: same kind of message (names replaced) counted once per trainee
   const norm = (m) => m.replace(/'[^']*'|"[^"]*"/g, "…").replace(/^(\w+) is not defined/, "X is not defined");
   const g = {}; for (const e of errs || []) { const k = norm(e.message); (g[k] ||= new Set()).add(e.user_id); }
-  const common = Object.entries(g).map(([k, s]) => [k, s.size]).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const common = Object.entries(g).filter(([k]) => !/^Script error/i.test(k)).map(([k, s]) => [k, s.size]).sort((a, b) => b[1] - a[1]).slice(0, 6);
   const R = rows || [];
   const avg = (arr) => { const v = arr.filter((x) => x != null); return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null; };
   const totalT = R.reduce((a, r) => a + r.tasks_total, 0), doneT = R.reduce((a, r) => a + r.tasks_done, 0);
@@ -519,9 +519,9 @@ route("/m/class/:id/dash", async ({ id }) => {
       <div class="kpi"><b>${fmtMin(avg(R.map((r) => r.avg_minutes)))}</b><span>متوسط وقت إنجاز المهمة</span></div>
       <div class="kpi"><b>${totalT ? Math.round((doneT / totalT) * 100) : "—"}%</b><span>التمارين المسلّمة</span></div>
     </div>
-    <div class="card"><h3>الأخطاء الشائعة</h3>${common.length ? common.map(([k, n]) => `<div class="row small"><code class="grow" style="text-align:end">${esc(k)}</code><span class="chip bad">${n} متدرب</span></div>`).join("") + `<p class="tiny muted">إذا تكرر الخطأ عند كثيرين، اشرحه للجميع من الشريحة.</p>` : `<p class="small muted">ما فيه أخطاء مسجلة بعد.</p>`}</div>
+    <div class="card"><h3>الأخطاء الشائعة</h3>${common.length ? common.map(([k, n]) => `<div class="row small"><code class="grow" style="text-align:end">${esc(k)}</code><span class="chip bad">${n} متدرب</span></div>`).join("") + `<p class="tiny muted">إذا تكرر الخطأ عند كثيرين، اشرحه للجميع من الشريحة.</p>` : `<p class="small muted">لا توجد أخطاء مسجّلة بعد.</p>`}</div>
     <div class="card scroll-x"><table class="t"><thead><tr><th>المتدرب</th><th>المسلّم</th><th>الكتابة اليدوية</th><th>وقت الحل</th><th>أثناء المحاضرة</th></tr></thead><tbody>
-      ${R.map((r) => `<tr><td><b>${esc(r.full_name || "متدرب")}</b></td><td>${r.tasks_done}/${r.tasks_total}</td><td ${r.typed_pct != null && r.typed_pct < 50 ? 'style="color:var(--bad);font-weight:700"' : ""}>${r.typed_pct ?? "—"}%</td><td>${fmtMin(r.avg_minutes)}</td><td>${r.in_session_pct ?? "—"}%</td></tr>`).join("") || `<tr><td colspan="5" class="muted">ما فيه متدربين بعد.</td></tr>`}
+      ${R.map((r) => `<tr><td><b>${esc(r.full_name || "متدرب")}</b></td><td>${r.tasks_done}/${r.tasks_total}</td><td ${r.typed_pct != null && r.typed_pct < 50 ? 'style="color:var(--bad);font-weight:700"' : ""}>${r.typed_pct ?? "—"}%</td><td>${fmtMin(r.avg_minutes)}</td><td>${r.in_session_pct ?? "—"}%</td></tr>`).join("") || `<tr><td colspan="5" class="muted">لا يوجد متدربون بعد.</td></tr>`}
     </tbody></table></div>
     <p class="tiny muted">الأرقام للمتابعة والدعم وليست درجات. الدرجة الرسمية في منصة تقني، والقرار للمدرب.</p>`);
 });

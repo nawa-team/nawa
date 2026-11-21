@@ -116,3 +116,5 @@ table.t th{font-size:12px;color:var(--muted);font-weight:600}
 /* inline icons inside lists and buttons */
 .list svg,.btn svg{width:20px;height:20px;flex:none}
 .list>a>svg{color:var(--muted)}
+
+.slidebox canvas,canvas{direction:ltr}
