@@ -15,7 +15,9 @@ async function pdfjs() {
 
 export async function openPdf(src) {
   const L = await pdfjs();
-  return L.getDocument(src).promise; // src: URL or {data: ArrayBuffer}
+  const base = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/";
+  const opts = typeof src === "string" ? { url: src } : src; // URL or {data: ArrayBuffer}
+  return L.getDocument({ ...opts, cMapUrl: base + "cmaps/", cMapPacked: true, standardFontDataUrl: base + "standard_fonts/" }).promise;
 }
 
 export async function renderPage(doc, n, canvas) {

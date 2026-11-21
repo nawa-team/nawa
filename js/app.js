@@ -253,7 +253,7 @@ route("/t/lecture/:id", async ({ id }) => {
   const ws = mountWorkspace($("#ws", m), { code: "<h1>مرحبا</h1>\n<script>\n  \n<\/script>" });
   const fbtn = $("#follow", m);
   const follow = { off() { following = false; fbtn.setAttribute("aria-pressed", "false"); } };
-  const sl = await mountSlides(m, lec.file_path, lec.classes?.live_slide || 1, { follow });
+  let sl; mountSlides(m, lec.file_path, lec.classes?.live_slide || 1, { follow }).then((x) => (sl = x));
   fbtn.onclick = async () => {
     following = !following; fbtn.setAttribute("aria-pressed", following);
     if (following) { const { data } = await sb.from("classes").select("live_slide").eq("id", lec.class_id).single(); if (data?.live_slide && sl) sl.show(data.live_slide, true); }
@@ -403,7 +403,7 @@ route("/m/lecture/:id", async ({ id }) => {
     </div>`, "wide");
   let sl;
   const setLive = async (n) => { if (live) await sb.from("classes").update({ live_slide: n }).eq("id", lec.class_id); };
-  sl = await mountSlides(m, lec.file_path, lec.classes.live_slide || 1, { onPage: setLive });
+  const slReady = mountSlides(m, lec.file_path, lec.classes.live_slide || 1, { onPage: setLive }).then((x) => (sl = x)); // buttons work while the PDF loads
   $("#live", m).onclick = async () => {
     await sb.from("classes").update({ live_slide: live ? null : sl?.page || 1 }).eq("id", lec.class_id);
     toast(live ? "انتهت الجلسة" : "بدأت الجلسة، والمتدربون يشوفون التنبيه"); render();
@@ -411,6 +411,7 @@ route("/m/lecture/:id", async ({ id }) => {
   const doExtract = async () => {
     const b = $("#extract", m); b.disabled = true; b.innerHTML = '<span class="spinner"></span> يقرأ المحاضرة';
     try {
+      await slReady; if (!sl) throw new Error("تعذّر فتح ملف المحاضرة");
       const text = await extractText(sl.doc);
       if (text.replace(/\[صفحة \d+\]|\s/g, "").length < 40) throw new Error("ما قدرنا نقرأ نص من الملف (يمكن صور فقط). أضف التمارين يدويًا.");
       const { topics } = await ai("topics", { lecture_id: id, text });
@@ -419,7 +420,7 @@ route("/m/lecture/:id", async ({ id }) => {
     b.disabled = false; b.textContent = "إعادة الاستخراج";
   };
   $("#extract", m).onclick = doExtract;
-  if (location.hash.includes("extract=1") && !lec.topics?.length && sl) { history.replaceState(null, "", "#/m/lecture/" + id); doExtract(); }
+  if (location.hash.includes("extract=1") && !lec.topics?.length) { history.replaceState(null, "", "#/m/lecture/" + id); doExtract(); }
   $("#gen", m).onclick = async (e) => {
     const chosen = $$("#topics input:checked", m).map((x) => lec.topics[+x.value]);
     if (!chosen.length) return toast("اختر موضوعًا واحدًا على الأقل");

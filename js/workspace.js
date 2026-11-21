@@ -20,6 +20,8 @@ export function localHint(msg) {
 
 const GUARD = `<script>
 window.onerror=function(m,s,l){parent.postMessage({nawa:'err',m:String(m).replace(/^Uncaught /,''),l:l},'*');return true};
+(function(){var out=[];function show(){var c=document.getElementById('__nawa_console');if(!c){c=document.createElement('pre');c.id='__nawa_console';c.style.cssText='margin:8px 0 0;padding:8px;background:#16181D;color:#BCD13C;border-radius:8px;font:13px/1.5 monospace;white-space:pre-wrap;direction:ltr;text-align:left';(document.body||document.documentElement).appendChild(c)}c.textContent=out.join('\\n')}
+var L=console.log;console.log=function(){var a=[].map.call(arguments,function(x){try{return typeof x==='object'?JSON.stringify(x):String(x)}catch(e){return String(x)}}).join(' ');out.push(a);if(document.body)show();else document.addEventListener('DOMContentLoaded',show);L.apply(console,arguments)}})();
 window.addEventListener('load',function(){setTimeout(function(){parent.postMessage({nawa:'out',t:(document.body&&document.body.innerText||'').slice(0,3000)},'*')},60)});
 <\/script>`;
 
@@ -48,13 +50,16 @@ export function mountWorkspace(root, { code = "", onChange, onError, typed = 0, 
 
   const run = () => {
     errBox.innerHTML = ""; st.errors = []; st.output = "";
-    pv.srcdoc = '<!doctype html><meta charset="utf-8"><body style="font-family:system-ui;padding:8px">' + GUARD + ed.value + "</body>";
+    const isJs = !/<[a-z!]/i.test(ed.value); // plain JS without tags runs as a script
+    const head = '<!doctype html><meta charset="utf-8"><body style="font-family:system-ui;padding:8px">' + GUARD;
+    st.offset = head.split("\n").length - 1 + (isJs ? 1 : 0); // so error lines match the editor
+    pv.srcdoc = head + (isJs ? "<script>\n" + ed.value + "\n<\/script>" : ed.value) + "</body>";
   };
   const onMsg = (e) => {
     if (e.source !== pv.contentWindow || !e.data || !e.data.nawa) return;
     if (e.data.nawa === "out") st.output = e.data.t;
     if (e.data.nawa === "err") {
-      const msg = e.data.m, lineNo = Math.max(1, (e.data.l || 1) - 1);
+      const msg = e.data.m, lineNo = Math.max(1, (e.data.l || 1) - (st.offset || 0));
       st.errors.push(msg);
       const lineCode = ed.value.split("\n")[lineNo - 1] || "";
       const local = localHint(msg);

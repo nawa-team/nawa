@@ -3,7 +3,9 @@
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
 const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
-const MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-2.5-flash";
+// "-latest" names always point to the current free models. Lite is fast and less busy; Flash is the backup.
+const MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-flash-lite-latest";
+const FALLBACK = Deno.env.get("GEMINI_FALLBACK") ?? "gemini-flash-latest";
 const URL_ = Deno.env.get("SUPABASE_URL")!;
 const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -19,15 +21,30 @@ const json = (b: unknown, status = 200) =>
 
 async function gemini(system: string, user: string, schema: unknown) {
   if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY is not set");
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
+  // busy model (503/429): wait and retry, then fall back to the lighter free model
+  let last = "";
+  for (const [model, wait] of [[MODEL, 0], [FALLBACK, 0], [MODEL, 2000]] as const) {
+    if (wait) await new Promise((r) => setTimeout(r, wait));
+    try { return await callGemini(model, system, user, schema); }
+    catch (e) { last = String((e as Error).message); if (!/Gemini (503|429|500)|timed? ?out|abort/i.test(last)) throw e; }
+  }
+  throw new Error("الذكاء الاصطناعي مشغول الآن، جرّب بعد دقيقة. (" + last.slice(0, 60) + ")");
+}
+
+async function callGemini(model: string, system: string, user: string, schema: unknown, fast = true): Promise<any> {
+  const generationConfig: Record<string, unknown> = { responseMimeType: "application/json", responseSchema: schema, temperature: 0.4 };
+  if (fast) generationConfig.thinkingConfig = { thinkingBudget: 0 }; // short answers, no long "thinking" = faster
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: "POST",
+    signal: AbortSignal.timeout(30000), // don't hang: give up and try the other model
     headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_KEY },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: system }] },
       contents: [{ role: "user", parts: [{ text: user }] }],
-      generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0.4 },
+      generationConfig,
     }),
   });
+  if (r.status === 400 && fast) return callGemini(model, system, user, schema, false); // model without that option
   if (!r.ok) throw new Error(`Gemini ${r.status}: ${(await r.text()).slice(0, 200)}`);
   const d = await r.json();
   const text = d?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("") ?? "";
@@ -79,7 +96,7 @@ Deno.serve(async (req) => {
       const { data: isT } = await userClient.from("classes").select("id").eq("id", body.class_id).eq("trainer_id", user.id).maybeSingle();
       if (!isT) return json({ error: "للمدرب فقط" }, 403);
       const topics = (body.topics ?? []).slice(0, 8).map((t: { topic: string; summary?: string }) => `- ${t.topic}: ${t.summary ?? ""}`).join("\n");
-      const out = await gemini(BASE + "\nصمّم تمارين قصيرة تُحل في المتصفح بـ HTML و JavaScript وتظهر نتيجتها في المعاينة.",
+      const out = await gemini(BASE + "\nصمّم تمارين قصيرة تُحل في المتصفح بـ HTML و JavaScript وتظهر نتيجتها في المعاينة (داخل الصفحة أو عبر console.log). كود البداية يكون HTML كامل قصير، والجافاسكربت داخل وسم script. اكتب الكود على عدة أسطر (سطر لكل جملة) مع مسافات بادئة، ولا تضعه في سطر واحد.",
         `المواضيع:\n${topics}\n\nلكل موضوع تمرين واحد: عنوان قصير، ونص المطلوب (سطرين)، والناتج المتوقع والمفهوم المطلوب (للتقييم فقط)، وكود بداية قصير ناقص (ليس الحل).`,
         S({ tasks: ARR(S({ topic: STR, title: STR, prompt: STR, expected: STR, starter_code: STR })) }));
       return json(out);

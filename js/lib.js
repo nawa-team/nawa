@@ -65,7 +65,7 @@ let cleanup = null;
 export function onLeave(fn) { cleanup = fn; }
 export async function render() {
   if (cleanup) { try { cleanup(); } catch (_) {} cleanup = null; }
-  const path = location.hash.slice(1) || "/";
+  const path = location.hash.slice(1).split("?")[0] || "/";
   for (const r of routes) {
     const m = path.match(r.re);
     if (m) { const params = Object.fromEntries(r.keys.map((k, i) => [k, decodeURIComponent(m[i + 1])])); return r.handler(params); }
