@@ -1,6 +1,8 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
 import { SUPABASE_URL, SUPABASE_KEY } from "./config.js";
 
+// Read before the client clears it: a password-reset link arrives as "#access_token=...&type=recovery" or "#error=...".
+export const START_HASH = location.hash;
 export const sb = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: true } });
 
 export const $ = (s, r = document) => r.querySelector(s);
@@ -19,6 +21,9 @@ export function friendly(e) {
   if (/already registered|already exists/i.test(m)) return "هذا البريد مسجّل مسبقًا";
   if (/Password should be/i.test(m)) return "كلمة المرور قصيرة (6 أحرف على الأقل)";
   if (/Email not confirmed/i.test(m)) return "فعّل بريدك من الرسالة التي وصلتك أولًا";
+  if (/rate limit|For security purposes/i.test(m)) return "طلبات كثيرة خلال وقت قصير. انتظر قليلًا ثم حاول مرة أخرى";
+  if (/should be different/i.test(m)) return "كلمة المرور الجديدة يجب أن تختلف عن القديمة";
+  if (/Auth session missing/i.test(m)) return "انتهت صلاحية الرابط. اطلب رابطًا جديدًا";
   if (/Failed to fetch|NetworkError/i.test(m)) return "تعذّر الاتصال. تحقق من الإنترنت";
   return m.replace(/^.*?:\s*/, "") || "حدث خطأ غير متوقع";
 }

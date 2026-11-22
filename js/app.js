@@ -1,4 +1,4 @@
-import { sb, $, $$, esc, toast, friendly, ai, fmtMin, ago, LOGO, ICON, route, go, render, onLeave } from "./lib.js";
+import { sb, START_HASH, $, $$, esc, toast, friendly, ai, fmtMin, ago, LOGO, ICON, route, go, render, onLeave } from "./lib.js";
 import { mountWorkspace } from "./workspace.js";
 import { openPdf, renderPage, extractText } from "./pdf.js";
 
@@ -54,7 +54,8 @@ route("/login", () => {
     <form class="card" id="f"><h2>تسجيل الدخول</h2>
       <label class="f">البريد الإلكتروني<input class="f" name="email" type="email" required autocomplete="email" dir="ltr"></label>
       <label class="f">كلمة المرور<input class="f" name="password" type="password" required autocomplete="current-password" dir="ltr"></label>
-      <button class="btn">دخول</button><p class="tiny muted" id="msg"></p></form>
+      <button class="btn">دخول</button><p class="tiny muted" id="msg">${/[?&]e=link/.test(location.hash) ? "الرابط منتهي أو غير صالح. اطلب رابطًا جديدًا." : ""}</p>
+      <a class="tiny" href="#/forgot" style="align-self:flex-start">نسيت كلمة المرور؟</a></form>
     <a class="btn plain" href="#/signup">ليس لدي حساب</a></main>`;
   $("#f").onsubmit = async (e) => {
     e.preventDefault(); const f = new FormData(e.target); const b = $("button", e.target); b.disabled = true;
@@ -62,6 +63,40 @@ route("/login", () => {
     b.disabled = false;
     if (error) return ($("#msg").textContent = friendly(error));
     await loadMe(); go("/");
+  };
+});
+
+// Forgot password: Supabase emails a one-time link. The password itself is never stored by the app.
+route("/forgot", () => {
+  app.innerHTML = `<main class="narrow"><div class="auth-hero">${LOGO}<b>نَوء</b></div>
+    <form class="card" id="f"><h2>استعادة كلمة المرور</h2><p class="small muted">اكتب بريدك، وسنرسل لك رابطًا لتعيين كلمة مرور جديدة.</p>
+      <label class="f">البريد الإلكتروني<input class="f" name="email" type="email" required autocomplete="email" dir="ltr"></label>
+      <button class="btn">إرسال الرابط</button><p class="tiny muted" id="msg"></p></form>
+    <a class="btn plain" href="#/login">العودة لتسجيل الدخول</a></main>`;
+  $("#f").onsubmit = async (e) => {
+    e.preventDefault(); const b = $("button", e.target); b.disabled = true;
+    const { error } = await sb.auth.resetPasswordForEmail(new FormData(e.target).get("email").trim(), { redirectTo: location.origin + location.pathname });
+    b.disabled = false;
+    $("#msg").textContent = error ? friendly(error) : "إذا كان البريد مسجّلًا، ستصلك رسالة خلال دقائق. افتح الرابط من الجهاز نفسه.";
+  };
+});
+
+route("/reset", async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) return go("/login?e=link");
+  app.innerHTML = `<main class="narrow"><div class="auth-hero">${LOGO}<b>نَوء</b></div>
+    <form class="card" id="f"><h2>كلمة مرور جديدة</h2>
+      <label class="f">كلمة المرور الجديدة<input class="f" name="p1" type="password" required minlength="6" autocomplete="new-password" dir="ltr"></label>
+      <label class="f">تأكيد كلمة المرور<input class="f" name="p2" type="password" required minlength="6" autocomplete="new-password" dir="ltr"></label>
+      <button class="btn">حفظ</button><p class="tiny muted" id="msg"></p></form></main>`;
+  $("#f").onsubmit = async (e) => {
+    e.preventDefault(); const f = new FormData(e.target);
+    if (f.get("p1") !== f.get("p2")) return ($("#msg").textContent = "كلمتا المرور غير متطابقتين");
+    const b = $("button", e.target); b.disabled = true;
+    const { error } = await sb.auth.updateUser({ password: f.get("p1") });
+    b.disabled = false;
+    if (error) return ($("#msg").textContent = friendly(error));
+    toast("تم تغيير كلمة المرور"); await loadMe(); go("/");
   };
 });
 
@@ -527,7 +562,9 @@ route("/m/class/:id/dash", async ({ id }) => {
 });
 
 // ---------- start ----------
-sb.auth.onAuthStateChange((ev) => { if (ev === "SIGNED_OUT") { me = null; } });
+// A reset link opens the app with "#access_token=...&type=recovery" (or "#error=..." if it expired).
+const fromLink = START_HASH.includes("type=recovery") ? "/reset" : /[#&]error=/.test(START_HASH) ? "/login?e=link" : null;
+sb.auth.onAuthStateChange((ev) => { if (ev === "SIGNED_OUT") { me = null; } if (ev === "PASSWORD_RECOVERY") go("/reset"); });
 window.addEventListener("hashchange", render);
-render();
+if (fromLink) sb.auth.getSession().then(() => go(fromLink)); else render();
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(() => {});
