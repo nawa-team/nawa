@@ -46,7 +46,19 @@ route("/welcome", () => {
     <div class="auth-hero">${LOGO}<b>نَوء</b><p class="muted">المحاضرة والكود في شاشة واحدة</p></div>
     <div class="card"><p class="small">شرائح المحاضرة ومحرر الكود والمعاينة الحية في مكان واحد. بدون تنقّل بين النوافذ، وبدون صور شاشة.</p></div>
     <a class="btn" href="#/login">تسجيل الدخول</a><a class="btn plain" href="#/signup">إنشاء حساب</a>
+    <div class="card" style="text-align:center"><b>تجربة سريعة بدون تسجيل</b><span class="small muted">ادخل بحساب تجريبي فيه فصل وبيانات وهمية جاهزة.</span>
+      <div class="row"><button class="btn ghost grow" data-demo="trainer">كمدرب</button><button class="btn ghost grow" data-demo="trainee">كمتدرب</button></div><p class="tiny muted" id="dmsg"></p></div>
     <p class="tiny muted" style="text-align:center">نسخة تجريبية ببيانات تجريبية. يُستخدم الذكاء الاصطناعي للمساعدة، والقرار للمدرب.</p></main>`;
+  $$("[data-demo]").forEach((btn) => (btn.onclick = async () => {
+    $$("[data-demo]").forEach((x) => (x.disabled = true)); $("#dmsg").textContent = "جارٍ الدخول…";
+    try {
+      const { data, error } = await sb.functions.invoke("demo", { body: { role: btn.dataset.demo } });
+      if (error || !data?.token_hash) throw error || new Error(data?.error || "تعذّر الدخول");
+      const { error: e2 } = await sb.auth.verifyOtp({ token_hash: data.token_hash, type: "magiclink" });
+      if (e2) throw e2;
+      await loadMe(); go("/");
+    } catch (e) { $("#dmsg").textContent = friendly(e); $$("[data-demo]").forEach((x) => (x.disabled = false)); }
+  }));
 });
 
 route("/login", () => {
@@ -364,7 +376,7 @@ route("/m/class/:id", async ({ id }) => {
     <div class="row"><a class="btn plain sm" href="#/m">→ فصولي</a><h1 class="grow">${esc(c.name)}</h1>
       ${c.live_slide ? `<span class="chip live"><span class="dot"></span> الجلسة مباشرة</span><button class="btn plain sm" id="end">إنهاء الجلسة</button>` : ""}</div>
     <div class="grid">
-      <div class="card" style="text-align:center"><span class="small muted">رمز الفصل للعرض على الشاشة</span><div class="big-code">${c.code}</div><span class="small muted">${nMem ?? 0} متدرب في الفصل</span><button class="btn plain sm" id="copy">نسخ الرمز</button></div>
+      <div class="card" style="text-align:center"><span class="small muted">رمز الفصل للعرض على الشاشة</span><div class="big-code">${c.code}</div><span class="small muted">${nMem ?? 0} متدرب في الفصل</span><div class="row" style="justify-content:center"><button class="btn plain sm" id="copy">نسخ الرمز</button><button class="btn plain sm" id="newcode">رمز جديد</button></div><span class="tiny muted">الرمز الجديد يوقف القديم، ويبقى المنضمون في الفصل.</span></div>
       <div class="card"><h3>المتابعة</h3><a class="btn" href="#/m/class/${id}/dash">${ICON.chart} لوحة الالتزام والأخطاء الشائعة</a>
         <p class="small muted">من أنجز، ونسبة الكتابة اليدوية، ووقت الحل، والأخطاء المتكررة.</p></div>
     </div>
@@ -379,6 +391,10 @@ route("/m/class/:id", async ({ id }) => {
       return `<a href="#/m/task/${t.id}"><div class="grow"><div class="t">${esc(t.title)}</div><div class="tiny muted">${esc(t.topic)}${t.target_user ? " · لمتدرب محدد" : ""}</div></div><span class="small">${done}/${t.target_user ? 1 : nMem ?? 0}</span></a>`; }).join("") : `<div class="empty">بعد رفع المحاضرة، اختر المواضيع ونرسل التمارين.</div>`}</div>
     <details class="card"><summary><b>إضافة تمرين يدوي</b></summary>${taskForm()}</details>`, "");
   $("#copy", m).onclick = () => { navigator.clipboard?.writeText(c.code); toast("تم نسخ الرمز"); };
+  $("#newcode", m).onclick = async (e) => {
+    const b = e.currentTarget; if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = "تأكيد تغيير الرمز"; return; }
+    const { error } = await sb.rpc("new_class_code", { p_class: id }); toast(error ? friendly(error) : "تم إنشاء رمز جديد"); if (!error) render();
+  };
   const end = $("#end", m); if (end) end.onclick = async () => { await sb.from("classes").update({ live_slide: null }).eq("id", id); render(); };
   $("#up", m).onsubmit = async (e) => {
     e.preventDefault(); const f = new FormData(e.target); const file = f.get("file"); const b = $("button", e.target);
@@ -545,7 +561,7 @@ route("/m/class/:id/dash", async ({ id }) => {
   const R = rows || [];
   const avg = (arr) => { const v = arr.filter((x) => x != null); return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null; };
   const totalT = R.reduce((a, r) => a + r.tasks_total, 0), doneT = R.reduce((a, r) => a + r.tasks_done, 0);
-  shell("m", "/m", `<div class="row"><a class="btn plain sm" href="#/m/class/${id}">→ ${esc(c?.name || "الفصل")}</a><h2 class="grow">الالتزام والأداء</h2></div>
+  const m = shell("m", "/m", `<div class="row"><a class="btn plain sm" href="#/m/class/${id}">→ ${esc(c?.name || "الفصل")}</a><h2 class="grow">الالتزام والأداء</h2></div>
     ${error ? `<div class="card small">${esc(friendly(error))}</div>` : ""}
     <p class="small muted">مؤشرات قياس الأثر في المقترح، محسوبة من بيانات الاستخدام الفعلية:</p>
     <div class="kpis">
@@ -555,10 +571,16 @@ route("/m/class/:id/dash", async ({ id }) => {
       <div class="kpi"><b>${totalT ? Math.round((doneT / totalT) * 100) : "—"}%</b><span>التمارين المسلّمة</span></div>
     </div>
     <div class="card"><h3>الأخطاء الشائعة</h3>${common.length ? common.map(([k, n]) => `<div class="row small"><code class="grow" style="text-align:end">${esc(k)}</code><span class="chip bad">${n} متدرب</span></div>`).join("") + `<p class="tiny muted">إذا تكرر الخطأ عند كثيرين، اشرحه للجميع من الشريحة.</p>` : `<p class="small muted">لا توجد أخطاء مسجّلة بعد.</p>`}</div>
-    <div class="card scroll-x"><table class="t"><thead><tr><th>المتدرب</th><th>المسلّم</th><th>الكتابة اليدوية</th><th>وقت الحل</th><th>أثناء المحاضرة</th></tr></thead><tbody>
-      ${R.map((r) => `<tr><td><b>${esc(r.full_name || "متدرب")}</b></td><td>${r.tasks_done}/${r.tasks_total}</td><td ${r.typed_pct != null && r.typed_pct < 50 ? 'style="color:var(--bad);font-weight:700"' : ""}>${r.typed_pct ?? "—"}%</td><td>${fmtMin(r.avg_minutes)}</td><td>${r.in_session_pct ?? "—"}%</td></tr>`).join("") || `<tr><td colspan="5" class="muted">لا يوجد متدربون بعد.</td></tr>`}
+    <div class="card scroll-x"><table class="t"><thead><tr><th>المتدرب</th><th>المسلّم</th><th>الكتابة اليدوية</th><th>وقت الحل</th><th>أثناء المحاضرة</th><th></th></tr></thead><tbody>
+      ${R.map((r) => `<tr><td><b>${esc(r.full_name || "متدرب")}</b></td><td>${r.tasks_done}/${r.tasks_total}</td><td ${r.typed_pct != null && r.typed_pct < 50 ? 'style="color:var(--bad);font-weight:700"' : ""}>${r.typed_pct ?? "—"}%</td><td>${fmtMin(r.avg_minutes)}</td><td>${r.in_session_pct ?? "—"}%</td><td><button class="btn plain sm" data-rm="${r.user_id}">إزالة</button></td></tr>`).join("") || `<tr><td colspan="5" class="muted">لا يوجد متدربون بعد.</td></tr>`}
     </tbody></table></div>
     <p class="tiny muted">الأرقام للمتابعة والدعم وليست درجات. الدرجة الرسمية في منصة تقني، والقرار للمدرب.</p>`);
+  // remove a trainee from the class (two taps, so it is never by mistake). Their past work stays saved.
+  $$("[data-rm]", m).forEach((b) => (b.onclick = async () => {
+    if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = "تأكيد الإزالة"; b.classList.add("danger"); return; }
+    const { error: e } = await sb.from("members").delete().eq("class_id", id).eq("user_id", b.dataset.rm);
+    toast(e ? friendly(e) : "أُزيل المتدرب من الفصل"); if (!e) render();
+  }));
 });
 
 // ---------- start ----------
