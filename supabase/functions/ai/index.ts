@@ -96,8 +96,8 @@ Deno.serve(async (req) => {
       const { data: isT } = await userClient.from("classes").select("id").eq("id", body.class_id).eq("trainer_id", user.id).maybeSingle();
       if (!isT) return json({ error: "للمدرب فقط" }, 403);
       const topics = (body.topics ?? []).slice(0, 8).map((t: { topic: string; summary?: string }) => `- ${t.topic}: ${t.summary ?? ""}`).join("\n");
-      const out = await gemini(BASE + "\nصمّم تمارين قصيرة تُحل في المتصفح بـ HTML و JavaScript وتظهر نتيجتها في المعاينة (داخل الصفحة أو عبر console.log). كود البداية يكون HTML كامل قصير، والجافاسكربت داخل وسم script. اكتب الكود على عدة أسطر (سطر لكل جملة) مع مسافات بادئة، ولا تضعه في سطر واحد.",
-        `المواضيع:\n${topics}\n\nلكل موضوع تمرين واحد: عنوان قصير، ونص المطلوب (سطرين)، والناتج المتوقع والمفهوم المطلوب (للتقييم فقط)، وكود بداية قصير ناقص (ليس الحل).`,
+      const out = await gemini(BASE + "\nصمّم تمارين قصيرة تُحل في المتصفح بـ HTML و JavaScript وتظهر نتيجتها في المعاينة (داخل الصفحة أو عبر console.log). كود البداية هيكل فارغ فقط (DOCTYPE و html و body، ووسم script فارغ إن احتاج التمرين JavaScript) مع تعليق واحد يوضح مكان الكتابة. ممنوع أن يحتوي كود البداية أي وسم أو خاصية أو دالة مطلوبة في التمرين، فالمتدرب يجب أن يكتبها بنفسه ليتدرب. اكتب الكود على عدة أسطر (سطر لكل جملة) مع مسافات بادئة، ولا تضعه في سطر واحد.",
+        `المواضيع:\n${topics}\n\nلكل موضوع تمرين واحد: عنوان قصير، ونص المطلوب (سطرين)، والناتج المتوقع والمفهوم المطلوب (للتقييم فقط)، وكود بداية يكون هيكلًا فارغًا فقط (ليس فيه أي جزء من الحل).`,
         S({ tasks: ARR(S({ topic: STR, title: STR, prompt: STR, expected: STR, starter_code: STR })) }));
       // pin each exercise to the slide its topic came from («تمرين الشريحة»)
       const pages: Record<string, number> = {};

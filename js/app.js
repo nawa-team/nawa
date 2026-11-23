@@ -238,10 +238,11 @@ async function loadTasksWithStatus(cls) {
   const sm = Object.fromEntries((subs || []).map((s) => [s.task_id, s]));
   return (tasks || []).map((t) => ({ ...t, sub: sm[t.id], st: !sm[t.id] ? "new" : sm[t.id].submitted_at ? "done" : "open" }));
 }
-function lecBlock(l, tasks) {
+// a lecture is a folded list: tap the name to show its exercises
+function lecBlock(l, tasks, open = false) {
   const ts = tasks.filter((t) => t.lecture_id === l.id); const done = ts.filter((t) => t.st === "done").length;
-  return `<div class="lec"><a class="lechead" href="#/t/lecture/${l.id}">${ICON.slides}<div class="grow"><b>${esc(l.title)}</b><div class="tiny muted">${ts.length ? `أنجزت ${done} من ${ts.length} تمارين` : "لا توجد تمارين بعد"} · ${ago(l.created_at)}</div></div><span class="tiny">فتح ‹</span></a>
-    ${ts.length ? `<div class="list">${ts.map(taskRow).join("")}</div>` : ""}</div>`;
+  return `<details class="lec"${open ? " open" : ""}><summary class="lechead">${ICON.slides}<div class="grow"><b>${esc(l.title)}</b><div class="tiny muted">${ts.length ? `أنجزت ${done} من ${ts.length} تمارين` : "لا توجد تمارين بعد"} · ${ago(l.created_at)}</div></div><span class="fold" aria-hidden="true">⌄</span></summary>
+    <div class="list">${ts.map(taskRow).join("")}<a href="#/t/lecture/${l.id}" class="openlec">${ICON.slides}<div class="grow t">فتح المحاضرة (الشرائح والمحرر)</div><span class="tiny">‹</span></a></div></details>`;
 }
 const taskRow = (t) => `<a href="#/t/task/${t.id}"><div class="grow"><div class="t">${esc(t.title)}</div><div class="tiny muted">${esc(t.topic)}${t.slide ? ` · الشريحة ${t.slide}` : ""}${t.target_user ? " · مُرسل لك" : ""}${t.is_extra ? " · إضافي" : ""}</div></div>
   <span class="chip ${STATUS[t.st][1]}">${STATUS[t.st][0]}</span>${t.sub ? vchip(t.sub.ai_verdict) : ""}</a>`;
@@ -275,9 +276,9 @@ route("/t/tasks", async () => {
   const tasks = await loadTasksWithStatus(cls);
   const { data: lecs } = await sb.from("lectures").select("id,title,created_at").eq("class_id", cls.id).order("created_at", { ascending: false });
   const loose = tasks.filter((t) => !t.lecture_id || !(lecs || []).some((l) => l.id === t.lecture_id));
-  shell("t", "/t/tasks", `<h1>المحاضرات والتمارين</h1><p class="small muted">كل محاضرة وتحتها تمارينها.</p>
-    ${(lecs || []).map((l) => lecBlock(l, tasks)).join("")}
-    ${loose.length ? `<div class="lec"><div class="lechead">${ICON.code}<b class="grow">تمارين إضافية</b></div><div class="list">${loose.map(taskRow).join("")}</div></div>` : ""}
+  shell("t", "/t/tasks", `<h1>المحاضرات والتمارين</h1><p class="small muted">اضغط على اسم المحاضرة لعرض تمارينها.</p>
+    ${(lecs || []).map((l, i) => lecBlock(l, tasks, i === 0)).join("")}
+    ${loose.length ? `<details class="lec"><summary class="lechead">${ICON.code}<b class="grow">تمارين إضافية</b><span class="fold" aria-hidden="true">⌄</span></summary><div class="list">${loose.map(taskRow).join("")}</div></details>` : ""}
     ${!lecs?.length && !tasks.length ? `<div class="card empty">لم تصلك محاضرات أو تمارين بعد.</div>` : ""}`);
 });
 
@@ -290,18 +291,20 @@ route("/t/task/:id", async ({ id }) => {
   const { data: notes } = await sb.from("notes").select("body,created_at").eq("submission_id", sub.id).order("created_at");
   const lec = task.lectures;
   const m = shell("t", "/t/tasks", `
-    <div class="row"><a class="btn plain sm" href="#/t/tasks">→ التمارين</a><h2 class="grow">${esc(task.title)}</h2>${sub.submitted_at ? vchip(sub.ai_verdict) : ""}</div>
+    <div class="row"><a class="btn plain sm" href="#/t/tasks">→ المحاضرات</a><h2 class="grow">${esc(task.title)}</h2>${sub.submitted_at ? vchip(sub.ai_verdict) : ""}</div>
     <div class="ws">
       <section class="pane">
         <div class="card"><span class="chip new" style="align-self:flex-start">${esc(task.topic)}</span><p>${esc(task.prompt)}</p></div>
-        ${lec?.file_path ? `<div class="card"><div class="row"><b class="grow small">${task.slide ? `التمرين من الشريحة ${task.slide} · ` : ""}${esc(lec.title)}</b><span class="tiny muted" id="pg"></span></div><div class="slidebox"><canvas id="cv"></canvas></div>
-          <div class="slidenav"><button class="btn plain sm" id="prev">›</button><span class="grow"></span><button class="btn plain sm" id="zoom">⤢ تكبير</button><button class="btn plain sm" id="next">‹</button></div></div>` : ""}
+        <div id="ws" class="pane"></div>
+        <div class="row"><button class="btn grow" id="submit">${sub.submitted_at ? "إعادة التسليم" : "تسليم"}</button></div>
+        <p class="ai-note">يُقيَّم الحل بالذكاء الاصطناعي حسب الناتج والمفهوم، وأي طريقة صحيحة مقبولة. القرار النهائي للمدرب.</p>
         <div id="result">${resultHTML(sub)}</div>
         ${(notes || []).map((n) => `<div class="card"><span class="tiny muted">ملاحظة من المدرب · ${ago(n.created_at)}</span><p class="small">${esc(n.body)}</p></div>`).join("")}
       </section>
-      <section class="pane"><div id="ws" class="pane"></div>
-        <div class="row"><button class="btn grow" id="submit">${sub.submitted_at ? "إعادة التسليم" : "تسليم"}</button></div>
-        <p class="ai-note">يُقيَّم الحل بالذكاء الاصطناعي حسب الناتج والمفهوم، وأي طريقة صحيحة مقبولة. القرار النهائي للمدرب.</p></section>
+      <section class="pane">
+        ${lec?.file_path ? `<div class="card"><div class="row"><b class="grow small">${task.slide ? `التمرين من الشريحة ${task.slide} · ` : ""}${esc(lec.title)}</b><span class="tiny muted" id="pg"></span></div><div class="slidebox"><canvas id="cv"></canvas></div>
+          <div class="slidenav"><button class="btn plain sm" id="prev">›</button><span class="grow"></span><button class="btn plain sm" id="zoom">⤢ تكبير</button><button class="btn plain sm" id="next">‹</button></div></div>` : ""}
+      </section>
     </div>`, "wide");
   const ws = mountWorkspace($("#ws", m), { code: sub.code || task.starter_code || "", typed: sub.typed_chars || 0, pasted: sub.pasted_chars || 0 });
   // log errors for the trainer's "common errors" (message only, max once per message)
