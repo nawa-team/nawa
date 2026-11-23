@@ -172,3 +172,7 @@ details.lec[open] .fold{transform:rotate(180deg)}
 details.lec:not([open]) .list{display:none}
 .lec a.openlec{color:var(--gold-ink);font-weight:600}
 [data-w="err"]{display:flex;flex-direction:column;gap:8px}
+/* task page: wide = exercise + slide on the right, code on the left; narrow = exercise, code, slide */
+.ws.task{grid-template-areas:"q code" "s code";grid-template-rows:auto 1fr}
+.ws.task .ta-q{grid-area:q} .ws.task .ta-code{grid-area:code} .ws.task .ta-s{grid-area:s;align-self:start}
+@media (max-width:900px){.ws.task{grid-template-areas:"q" "code" "s";grid-template-rows:auto}}

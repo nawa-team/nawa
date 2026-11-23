@@ -294,19 +294,17 @@ route("/t/task/:id", async ({ id }) => {
   const lec = task.lectures;
   const m = shell("t", "/t/tasks", `
     <div class="row"><a class="btn plain sm" href="#/t/tasks">→ المحاضرات</a><h2 class="grow">${esc(task.title)}</h2>${sub.submitted_at ? `<span class="tiny muted">سُلّم ${ago(sub.submitted_at)}</span>${vchip(sub.ai_verdict) || `<span class="chip ok">تم التسليم</span>`}` : ""}</div>
-    <div class="ws">
-      <section class="pane">
-        <div class="card"><span class="chip new" style="align-self:flex-start">${esc(task.topic)}</span><p>${esc(task.prompt)}</p></div>
+    <div class="ws task">
+      <div class="card ta-q"><span class="chip new" style="align-self:flex-start">${esc(task.topic)}</span><p>${esc(task.prompt)}</p></div>
+      <section class="pane ta-code">
         <div id="ws" class="pane"></div>
         <div class="row"><button class="btn grow" id="submit">${sub.submitted_at ? "إعادة التسليم" : "تسليم"}</button></div>
         <p class="ai-note">يُقيَّم الحل بالذكاء الاصطناعي حسب الناتج والمفهوم، وأي طريقة صحيحة مقبولة. القرار النهائي للمدرب.</p>
         <div id="result">${resultHTML(sub)}</div>
         ${(notes || []).map((n) => `<div class="card"><span class="tiny muted">ملاحظة من المدرب · ${ago(n.created_at)}</span><p class="small">${esc(n.body)}</p></div>`).join("")}
       </section>
-      <section class="pane">
-        ${lec?.file_path ? `<div class="card"><div class="row"><b class="grow small">${task.slide ? `التمرين من الشريحة ${task.slide} · ` : ""}${esc(lec.title)}</b><span class="tiny muted" id="pg"></span></div><div class="slidebox"><canvas id="cv"></canvas></div>
-          <div class="slidenav"><button class="btn plain sm" id="prev">›</button><span class="grow"></span><button class="btn plain sm" id="zoom">⤢ تكبير</button><button class="btn plain sm" id="next">‹</button></div></div>` : ""}
-      </section>
+      ${lec?.file_path ? `<div class="card ta-s"><div class="row"><b class="grow small">${task.slide ? `التمرين من الشريحة ${task.slide} · ` : ""}${esc(lec.title)}</b><span class="tiny muted" id="pg"></span></div><div class="slidebox"><canvas id="cv"></canvas></div>
+        <div class="slidenav"><button class="btn plain sm" id="prev">›</button><span class="grow"></span><button class="btn plain sm" id="zoom">⤢ تكبير</button><button class="btn plain sm" id="next">‹</button></div></div>` : ""}
     </div>`, "wide");
   const ws = mountWorkspace($("#ws", m), { code: sub.code || task.starter_code || "", typed: sub.typed_chars || 0, pasted: sub.pasted_chars || 0 });
   // log errors for the trainer's "common errors" (message only, max once per message)

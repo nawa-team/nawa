@@ -14,9 +14,9 @@ const HINTS = [
   [/Infinite loop/, () => "الحلقة لا تتوقف أبدًا، لذلك أوقفناها حتى لا تتجمّد الصفحة. تأكد أن الشرط يصبح false في وقت ما، مثل زيادة المتغيّر أو إنقاصه داخل الحلقة."],
   [/browser hid the details/, () => "حدث خطأ أثناء التشغيل ولم يُظهر المتصفح تفاصيله. راجِع آخر جزء عدّلته في الكود، وتأكد من الأقواس وعلامات التنصيص وأسماء المتغيّرات."],
   [/Invalid or unexpected token/, () => "يوجد حرف غير مفهوم، غالبًا علامة تنصيص مفتوحة ولم تُغلق."],
-  [/Unknown tag <([\w-]+)>(?: \(did you mean <(.+)>\?\))?/, (m) => `الوسم <${m[1]}> غير موجود في HTML${m[2] ? `، هل تقصد <${m[2].replace(/> or </g, "> أو <")}>؟` : "."} المتصفح يتجاهله، لذلك لا يظهر أثره في الصفحة.`],
-  [/Tag <(\w+)> is not closed/, (m) => `فتحت الوسم <${m[1]}> ولم تُغلقه. أضف </${m[1]}> في المكان المناسب، فبعض المتصفحات تُصلحه وحدها لكن هذا خطأ في الكود.`],
-  [/Closing tag <\/(\w+)> has no opening tag/, (m) => `يوجد وسم إغلاق </${m[1]}> بدون وسم فتح قبله. احذفه أو أضف <${m[1]}> قبله.`],
+  [/Unknown tag <([\w-]+)>(?: \(did you mean <(.+)>\?\))?/, (m) => `وسم غير موجود${m[2] ? `، هل تقصد <${m[2].replace(/> or </g, "> أو <")}>؟` : "."}`],
+  [/Tag <(\w+)> is not closed/, (m) => `ينقصه </${m[1]}> لإغلاقه.`],
+  [/Closing tag <\/(\w+)> has no opening tag/, (m) => `وسم إغلاق بدون فتح. احذفه أو أضف <${m[1]}> قبله.`],
 ];
 // ---------- HTML check: the browser hides HTML mistakes, so we point them out ----------
 const TAGS = new Set("html head body title meta link style script div span p a img ul ol li table thead tbody tfoot tr td th caption h1 h2 h3 h4 h5 h6 br hr b i u strong em small mark sub sup pre code blockquote form input button label select option textarea fieldset legend nav header footer main section article aside figure figcaption video audio source iframe canvas svg path circle rect line g text center font marquee abbr cite dl dt dd details summary progress meter time data template noscript base col colgroup wbr q s del ins kbd samp var bdi bdo ruby rt rp picture track map area object embed param output datalist optgroup dialog address hgroup search slot".split(" "));
@@ -188,9 +188,9 @@ export function mountWorkspace(root, { code = "", onChange, onError, typed = 0, 
         <div class="row"><b class="grow">${lineNo ? `${warn ? "خطأ في HTML" : "خطأ"} في السطر ${lineNo}` : "خطأ أثناء التشغيل"}</b>${lineNo ? `<button class="btn plain sm" data-w="goto">اذهب للسطر</button>` : ""}</div>
         ${lineNo ? `<pre class="errsnip" dir="ltr"><span>${lineNo}</span>${highlight(lineCode.trim()) || " "}</pre>` : ""}
         <code dir="ltr">${esc(msg)}</code>
-        <span class="small"><b>بالعربية:</b> <span data-w="exp">${local ? esc(local) : "…"}</span></span>
+        <span class="small" data-w="exp">${local ? esc(local) : ""}</span>
         ${local ? "" : `<button class="btn plain sm" data-w="ask" style="align-self:flex-start">اشرح لي الخطأ</button>`}
-        <span class="ai-note">رسالة الخطأ الأصلية تبقى بالإنجليزية لتتعلّم المصطلح. الشرح والتلميح بدون الحل.</span></div>`);
+        </div>`);
       const card = errBox.lastElementChild;
       onError && onError(msg);
       const gt = $('[data-w="goto"]', card); if (gt) gt.onclick = () => goLine(lineNo);
