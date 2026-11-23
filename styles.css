@@ -176,3 +176,4 @@ details.lec:not([open]) .list{display:none}
 .ws.task{grid-template-areas:"q code" "s code";grid-template-rows:auto 1fr}
 .ws.task .ta-q{grid-area:q} .ws.task .ta-code{grid-area:code} .ws.task .ta-s{grid-area:s;align-self:start}
 @media (max-width:900px){.ws.task{grid-template-areas:"q" "code" "s";grid-template-rows:auto}}
+details.card>summary{cursor:pointer} details.card:not([open]){padding-top:12px;padding-bottom:12px}

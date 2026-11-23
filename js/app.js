@@ -476,11 +476,13 @@ route("/m/class/:id", async ({ id }) => {
   const [{ data: c }, { data: lecs }, { data: tasks }, { count: nMem }] = await Promise.all([
     sb.from("classes").select("*").eq("id", id).single(),
     sb.from("lectures").select("id,title,hidden,created_at").eq("class_id", id).order("created_at", { ascending: false }),
-    sb.from("tasks").select("id,title,topic,target_user,created_at,submissions(submitted_at)").eq("class_id", id).order("created_at", { ascending: false }),
+    sb.from("tasks").select("id,title,topic,target_user,lecture_id,slide,created_at,submissions(submitted_at)").eq("class_id", id).order("created_at", { ascending: false }),
     sb.from("members").select("user_id", { count: "exact", head: true }).eq("class_id", id),
   ]);
   if (!c) return shell("m", "/m", `<div class="card empty">الفصل غير موجود.</div>`);
   fixLive(c);
+  const mTaskRow = (t) => { const done = (t.submissions || []).filter((s) => s.submitted_at).length, all = t.target_user ? 1 : nMem ?? 0;
+    return `<a href="#/m/task/${t.id}"><div class="grow"><div class="t">${esc(t.title)}</div><div class="tiny muted">${esc(t.topic)}${t.slide ? ` · الشريحة ${t.slide}` : ""}${t.target_user ? " · لمتدرب محدد" : ""}</div></div><span class="chip ${all && done >= all ? "ok" : ""}">سلّم ${done} من ${all}</span></a>`; };
   const m = shell("m", "/m", `
     <div class="row"><a class="btn plain sm" href="#/m">→ فصولي</a><h1 class="grow">${esc(c.name)}</h1>
       ${c.live_slide ? `<span class="chip live"><span class="dot"></span> الجلسة مباشرة</span><button class="btn plain sm" id="end">إنهاء الجلسة</button>` : ""}</div>
@@ -489,17 +491,20 @@ route("/m/class/:id", async ({ id }) => {
       <div class="card"><h3>المتابعة</h3><a class="btn" href="#/m/class/${id}/dash">${ICON.chart} لوحة الالتزام والأخطاء الشائعة</a>
         <p class="small muted">من أنجز، ونسبة الكتابة اليدوية، ووقت الحل، والأخطاء المتكررة.</p></div>
     </div>
-    <h3>المحاضرات</h3>
-    <div class="list">${lecs?.length ? lecs.map((l) => `<a href="#/m/lecture/${l.id}">${ICON.slides}<div class="grow t">${esc(l.title)}</div>${l.hidden ? `<span class="chip">مخفية عن المتدربين</span>` : ""}<span class="tiny muted">${ago(l.created_at)}</span></a>`).join("") : `<div class="empty">ارفع أول محاضرة (PDF).</div>`}</div>
-    <form class="card" id="up"><h3>رفع محاضرة</h3>
-      <label class="f">العنوان<input class="f" name="title" required maxlength="100" placeholder="المحاضرة 3: الحلقات"></label>
-      <label class="f">ملف PDF (حتى 15 ميجا)<input class="f" name="file" type="file" accept="application/pdf,.pdf" required><span class="tiny muted">إذا كان العرض بوربوينت، احفظه PDF أولًا.</span></label>
-      <button class="btn">رفع</button><p class="small" id="upmsg" style="color:var(--bad)"></p></form>
-    <h3>التمارين المرسلة</h3>
-    <div class="list">${tasks?.length ? tasks.map((t) => { const done = (t.submissions || []).filter((s) => s.submitted_at).length;
-      return `<a href="#/m/task/${t.id}"><div class="grow"><div class="t">${esc(t.title)}</div><div class="tiny muted">${esc(t.topic)}${t.target_user ? " · لمتدرب محدد" : ""}</div></div><span class="small">${done}/${t.target_user ? 1 : nMem ?? 0}</span></a>`; }).join("") : `<div class="empty">بعد رفع المحاضرة، اختر المواضيع ونرسل التمارين.</div>`}</div>
-    <details class="card"><summary><b>إضافة تمرين يدوي</b></summary>${taskForm()}</details>
-    <details class="card"><summary><b>إعدادات الشعبة</b></summary>
+    <h3>المحاضرات وتمارينها</h3>
+    ${lecs?.length ? lecs.map((l, i) => { const ts = (tasks || []).filter((t) => t.lecture_id === l.id);
+      return `<details class="lec"${i === 0 ? " open" : ""}><summary class="lechead">${ICON.slides}<div class="grow"><b>${esc(l.title)}</b><div class="tiny muted">${ts.length} تمارين مرسلة · ${ago(l.created_at)}</div></div>${l.hidden ? `<span class="chip">مخفية</span>` : ""}<span class="fold" aria-hidden="true">⌄</span></summary>
+        <div class="list">${ts.map(mTaskRow).join("")}<a href="#/m/lecture/${l.id}" class="openlec">${ICON.slides}<div class="grow t">فتح المحاضرة: العرض المباشر والمواضيع وتوليد التمارين</div><span class="tiny">‹</span></a></div></details>`; }).join("")
+      : `<div class="card empty">ارفع أول محاضرة (PDF) من «رفع محاضرة جديدة» تحت.</div>`}
+    ${(() => { const loose = (tasks || []).filter((t) => !t.lecture_id); return loose.length ? `<details class="lec"><summary class="lechead">${ICON.code}<div class="grow"><b>تمارين إضافية</b><div class="tiny muted">${loose.length} تمارين بدون محاضرة</div></div><span class="fold" aria-hidden="true">⌄</span></summary><div class="list">${loose.map(mTaskRow).join("")}</div></details>` : ""; })()}
+    <h3>إضافة</h3>
+    <details class="card"${lecs?.length ? "" : " open"}><summary><b>＋ رفع محاضرة جديدة</b></summary>
+      <form class="pane" id="up">
+        <label class="f">العنوان<input class="f" name="title" required maxlength="100" placeholder="المحاضرة 3: الحلقات"></label>
+        <label class="f">ملف PDF (حتى 15 ميجا)<input class="f" name="file" type="file" accept="application/pdf,.pdf" required><span class="tiny muted">إذا كان العرض بوربوينت، احفظه PDF أولًا.</span></label>
+        <button class="btn">رفع</button><p class="small" id="upmsg" style="color:var(--bad)"></p></form></details>
+    <details class="card"><summary><b>＋ إضافة تمرين يدوي</b></summary>${taskForm()}</details>
+    <details class="card"><summary><b>⚙ إعدادات الشعبة</b></summary>
       <form class="row" id="ren"><input class="f grow" name="name" required maxlength="80" value="${esc(c.name)}"><button class="btn plain">حفظ الاسم</button></form>
       <button class="btn plain" id="del">حذف الشعبة</button>
       <span class="tiny muted">الحذف نهائي: تُحذف المحاضرات والتمارين وتسليمات المتدربين في هذه الشعبة.</span></details>`, "");
