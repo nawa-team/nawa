@@ -3,6 +3,16 @@ import { mountWorkspace } from "./workspace.js";
 import { openPdf, renderPage, extractText } from "./pdf.js";
 
 const app = $("#app");
+// light / dark: follows the device until the person picks one
+const isDark = () => (document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark";
+const themeBtn = (cls = "") => `<button class="themebtn ${cls}" data-theme-btn aria-label="الوضع الفاتح أو الداكن" title="الوضع الفاتح أو الداكن">${isDark() ? "☀️" : "🌙"}</button>`;
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-theme-btn]"); if (!b) return;
+  const t = isDark() ? "light" : "dark"; document.documentElement.dataset.theme = t;
+  try { localStorage.setItem("nawa.theme", t); } catch (_) {}
+  document.querySelectorAll("[data-theme-btn]").forEach((x) => (x.textContent = t === "dark" ? "☀️" : "🌙"));
+  const mc = document.querySelector('meta[name="theme-color"]'); if (mc) mc.content = t === "dark" ? "#16181D" : "#F6F7F5";
+});
 let me = null; // { id, email, full_name, role }
 
 async function loadMe() {
@@ -15,19 +25,19 @@ async function loadMe() {
 
 // ---------- layout ----------
 const NAV = {
-  t: [["/t", "الرئيسية", "home"], ["/t/tasks", "التمارين", "code"], ["/t/practice", "التدريب", "bulb"], ["/t/me", "حسابي", "user"]],
+  t: [["/t", "الرئيسية", "home"], ["/t/tasks", "المحاضرات", "slides"], ["/t/practice", "التدريب", "bulb"], ["/t/me", "حسابي", "user"]],
   m: [["/m", "فصولي", "class"], ["/m/me", "حسابي", "user"]],
 };
 function shell(role, active, html, cls = "") {
   const nav = NAV[role];
   app.innerHTML = `
-    <header class="top"><a class="brand" href="#${nav[0][0]}">${LOGO}<span>نَوء</span></a><span class="grow"></span>
+    <header class="top"><a class="brand" href="#${nav[0][0]}">${LOGO}<span>نَوء</span></a><span class="grow"></span>${themeBtn()}
       <nav>${nav.map(([h, l]) => `<a href="#${h}" ${h === active ? 'aria-current="page"' : ""}>${l}</a>`).join("")}</nav></header>
     <main class="${cls}">${html}</main>
     <nav class="tabs">${nav.map(([h, l, i]) => `<a href="#${h}" ${h === active ? 'aria-current="page"' : ""}>${ICON[i]}${l}</a>`).join("")}</nav>`;
   return $("main", app);
 }
-const loading = () => (app.innerHTML = `<main class="narrow"><div class="empty"><span class="spinner"></span></div></main>`);
+const loading = () => (app.innerHTML = `${themeBtn("float")}<main class="narrow"><div class="empty"><span class="spinner"></span></div></main>`);
 function need(role) {
   if (!me) { go("/login"); return false; }
   if (role && me.role !== role) { go(me.role === "trainer" ? "/m" : "/t"); return false; }
@@ -40,12 +50,66 @@ const STATUS = { new: ["جديد", "new"], open: ["لم يُسلَّم", ""], do
 const VERDICT = { correct: ["صحيح", "ok"], partial: ["قريب", "new"], wrong: ["يحتاج مراجعة", "bad"] };
 const vchip = (v) => (v ? `<span class="chip ${VERDICT[v][1]}">${VERDICT[v][0]}</span>` : "");
 const pct = (a, b) => (a + b ? Math.round((a / (a + b)) * 100) : null);
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+
+// lecture upload. iPad/iPhone sometimes give a PDF with no type, so the name is checked too.
+async function uploadPdf(classId, file) {
+  if (!file || !file.size) throw new Error("اختر ملف المحاضرة أولًا");
+  if (/\.(pptx?|key|docx?|odp)$/i.test(file.name)) throw new Error("هذا ملف عرض أو مستند. احفظه بصيغة PDF أولًا (ملف ← حفظ باسم أو تصدير ← PDF) ثم ارفعه.");
+  if (file.type !== "application/pdf" && !/\.pdf$/i.test(file.name)) throw new Error("يجب أن يكون الملف بصيغة PDF");
+  if (file.size > 15 * 1024 * 1024) throw new Error("الملف أكبر من 15 ميجا. صغّر حجمه ثم ارفعه.");
+  const path = `${classId}/${uid()}.pdf`;
+  const { error } = await sb.storage.from("lectures").upload(path, file, { contentType: "application/pdf" });
+  if (error) throw error;
+  return path;
+}
+// two taps for anything that deletes, so it never happens by mistake
+function twoTap(b, label, fn) {
+  b.onclick = async (e) => {
+    e.preventDefault();
+    if (!b.dataset.sure) { b.dataset.sure = 1; b.dataset.old = b.textContent; b.textContent = label; b.classList.add("danger"); setTimeout(() => { if (b.isConnected && b.dataset.sure) { delete b.dataset.sure; b.textContent = b.dataset.old; } }, 5000); return; }
+    b.disabled = true; await fn(); b.disabled = false;
+  };
+}
+// «تمرين الشريحة»: the exercise pinned to the slide the trainer just reached pops up for the trainee
+async function slideTaskFor(lectureId, slide) {
+  if (!lectureId || !slide) return null;
+  const { data } = await sb.from("tasks").select("id,title,slide").eq("lecture_id", lectureId).eq("slide", slide).limit(1);
+  const t = data?.[0]; if (!t) return null;
+  const { data: sub } = await sb.from("submissions").select("submitted_at").eq("task_id", t.id).eq("user_id", me.id).maybeSingle();
+  return { ...t, done: !!sub?.submitted_at };
+}
+function popSlideTask(t) {
+  const k = "nawa.pop." + t.id; let shown = false; try { shown = sessionStorage.getItem(k); sessionStorage.setItem(k, 1); } catch (_) {}
+  if (shown) return;
+  $(".sheet")?.remove(); // the newest slide wins
+  const d = document.createElement("div"); d.className = "sheet"; d.role = "dialog";
+  d.innerHTML = `<span class="chip live" style="align-self:flex-start"><span class="dot"></span> تمرين الشريحة ${t.slide}</span>
+    <b>وصل المدرب لتمرين: ${esc(t.title)}</b><span class="small muted">${t.done ? "سبق تسليم هذا التمرين. افتحه لمراجعة الحل مع الشرح." : "حلّه الآن والفكرة ما زالت في ذهنك."}</span>
+    <div class="row"><a class="btn grow" href="#/t/task/${t.id}">${t.done ? "مراجعة الحل" : "ابدأ الحل"}</a><button class="btn plain">لاحقًا</button></div>`;
+  document.body.appendChild(d); $("button", d).onclick = () => d.remove(); $("a", d).onclick = () => d.remove();
+}
+// enlarge a slide to the whole screen
+async function zoomSlide(doc, start, onMove) {
+  let page = start;
+  const d = document.createElement("div"); d.className = "zoom"; d.role = "dialog";
+  d.innerHTML = `<div class="row"><b class="grow" id="zpg"></b><button class="btn plain sm" id="zx">إغلاق ✕</button></div>
+    <div class="zoombox"><canvas></canvas></div><div class="slidenav"><button class="btn plain" id="zp">› السابقة</button><span class="grow"></span><button class="btn plain" id="zn">التالية ‹</button></div>`;
+  document.body.appendChild(d); document.body.style.overflow = "hidden";
+  const cv = $("canvas", d);
+  const show = async (n) => { page = Math.max(1, Math.min(doc.numPages, n)); $("#zpg", d).textContent = `الشريحة ${page} من ${doc.numPages}`; await renderPage(doc, page, cv, true); onMove && onMove(page); };
+  const close = () => { d.remove(); document.body.style.overflow = ""; document.removeEventListener("keydown", key); };
+  const key = (e) => { if (e.key === "Escape") close(); if (e.key === "ArrowLeft") show(page + 1); if (e.key === "ArrowRight") show(page - 1); };
+  document.addEventListener("keydown", key);
+  $("#zx", d).onclick = close; $("#zp", d).onclick = () => show(page - 1); $("#zn", d).onclick = () => show(page + 1);
+  await show(page);
+}
 
 // ---------- auth ----------
 route("/", async () => { await loadMe(); go(!me ? "/welcome" : me.role === "trainer" ? "/m" : "/t"); });
 
 route("/welcome", () => {
-  app.innerHTML = `<main class="narrow">
+  app.innerHTML = `${themeBtn("float")}<main class="narrow">
     <div class="auth-hero">${LOGO}<b>نَوء</b><p class="muted">المحاضرة والكود في شاشة واحدة</p></div>
     <div class="card"><p class="small">شرائح المحاضرة ومحرر الكود والمعاينة الحية في مكان واحد. بدون تنقّل بين النوافذ، وبدون صور شاشة.</p></div>
     <a class="btn" href="#/login">تسجيل الدخول</a><a class="btn plain" href="#/signup">إنشاء حساب</a>
@@ -65,7 +129,7 @@ route("/welcome", () => {
 });
 
 route("/login", () => {
-  app.innerHTML = `<main class="narrow"><div class="auth-hero">${LOGO}<b>نَوء</b></div>
+  app.innerHTML = `${themeBtn("float")}<main class="narrow"><div class="auth-hero">${LOGO}<b>نَوء</b></div>
     <form class="card" id="f"><h2>تسجيل الدخول</h2>
       <label class="f">البريد الإلكتروني<input class="f" name="email" type="email" required autocomplete="email" dir="ltr"></label>
       <label class="f">كلمة المرور<input class="f" name="password" type="password" required autocomplete="current-password" dir="ltr"></label>
@@ -83,7 +147,7 @@ route("/login", () => {
 
 // Forgot password: Supabase emails a one-time link. The password itself is never stored by the app.
 route("/forgot", () => {
-  app.innerHTML = `<main class="narrow"><div class="auth-hero">${LOGO}<b>نَوء</b></div>
+  app.innerHTML = `${themeBtn("float")}<main class="narrow"><div class="auth-hero">${LOGO}<b>نَوء</b></div>
     <form class="card" id="f"><h2>استعادة كلمة المرور</h2><p class="small muted">اكتب بريدك، وسنرسل لك رابطًا لتعيين كلمة مرور جديدة.</p>
       <label class="f">البريد الإلكتروني<input class="f" name="email" type="email" required autocomplete="email" dir="ltr"></label>
       <button class="btn">إرسال الرابط</button><p class="tiny muted" id="msg"></p></form>
@@ -99,7 +163,7 @@ route("/forgot", () => {
 route("/reset", async () => {
   const { data: { session } } = await sb.auth.getSession();
   if (!session) return go("/login?e=link");
-  app.innerHTML = `<main class="narrow"><div class="auth-hero">${LOGO}<b>نَوء</b></div>
+  app.innerHTML = `${themeBtn("float")}<main class="narrow"><div class="auth-hero">${LOGO}<b>نَوء</b></div>
     <form class="card" id="f"><h2>كلمة مرور جديدة</h2>
       <label class="f">كلمة المرور الجديدة<input class="f" name="p1" type="password" required minlength="6" autocomplete="new-password" dir="ltr"></label>
       <label class="f">تأكيد كلمة المرور<input class="f" name="p2" type="password" required minlength="6" autocomplete="new-password" dir="ltr"></label>
@@ -117,7 +181,7 @@ route("/reset", async () => {
 
 route("/signup", () => {
   let role = "trainee";
-  app.innerHTML = `<main class="narrow"><div class="auth-hero">${LOGO}<b>نَوء</b></div>
+  app.innerHTML = `${themeBtn("float")}<main class="narrow"><div class="auth-hero">${LOGO}<b>نَوء</b></div>
     <form class="card" id="f"><h2>إنشاء حساب</h2>
       <div class="seg" role="group" aria-label="نوع الحساب"><button type="button" data-r="trainee" aria-pressed="true">متدرب</button><button type="button" data-r="trainer" aria-pressed="false">مدرب</button></div>
       <label class="f">الاسم<input class="f" name="name" required maxlength="60" autocomplete="name"></label>
@@ -146,7 +210,7 @@ route("/signup", () => {
 
 // ---------- trainee ----------
 async function myClasses() {
-  const { data } = await sb.from("members").select("class_id, classes(id,name,code,live_slide,live_at,trainer_id)").eq("user_id", me.id);
+  const { data } = await sb.from("members").select("class_id, classes(id,name,code,live_slide,live_at,live_lecture,trainer_id)").eq("user_id", me.id);
   return (data || []).map((r) => fixLive(r.classes)).filter(Boolean);
 }
 function currentClass(list) {
@@ -168,13 +232,18 @@ route("/t/join", async () => {
 
 async function loadTasksWithStatus(cls) {
   const [{ data: tasks }, { data: subs }] = await Promise.all([
-    sb.from("tasks").select("id,title,topic,is_extra,target_user,lecture_id,created_at").eq("class_id", cls.id).order("created_at", { ascending: false }),
+    sb.from("tasks").select("id,title,topic,is_extra,target_user,lecture_id,slide,created_at").eq("class_id", cls.id).order("created_at", { ascending: false }),
     sb.from("submissions").select("task_id,submitted_at,ai_verdict").eq("user_id", me.id),
   ]);
   const sm = Object.fromEntries((subs || []).map((s) => [s.task_id, s]));
   return (tasks || []).map((t) => ({ ...t, sub: sm[t.id], st: !sm[t.id] ? "new" : sm[t.id].submitted_at ? "done" : "open" }));
 }
-const taskRow = (t) => `<a href="#/t/task/${t.id}"><div class="grow"><div class="t">${esc(t.title)}</div><div class="tiny muted">${esc(t.topic)}${t.target_user ? " · مُرسل لك" : ""}${t.is_extra ? " · إضافي" : ""}</div></div>
+function lecBlock(l, tasks) {
+  const ts = tasks.filter((t) => t.lecture_id === l.id); const done = ts.filter((t) => t.st === "done").length;
+  return `<div class="lec"><a class="lechead" href="#/t/lecture/${l.id}">${ICON.slides}<div class="grow"><b>${esc(l.title)}</b><div class="tiny muted">${ts.length ? `أنجزت ${done} من ${ts.length} تمارين` : "لا توجد تمارين بعد"} · ${ago(l.created_at)}</div></div><span class="tiny">فتح ‹</span></a>
+    ${ts.length ? `<div class="list">${ts.map(taskRow).join("")}</div>` : ""}</div>`;
+}
+const taskRow = (t) => `<a href="#/t/task/${t.id}"><div class="grow"><div class="t">${esc(t.title)}</div><div class="tiny muted">${esc(t.topic)}${t.slide ? ` · الشريحة ${t.slide}` : ""}${t.target_user ? " · مُرسل لك" : ""}${t.is_extra ? " · إضافي" : ""}</div></div>
   <span class="chip ${STATUS[t.st][1]}">${STATUS[t.st][0]}</span>${t.sub ? vchip(t.sub.ai_verdict) : ""}</a>`;
 
 route("/t", async () => {
@@ -182,15 +251,18 @@ route("/t", async () => {
   const list = await myClasses(); if (!list.length) return go("/t/join");
   const cls = currentClass(list);
   const tasks = await loadTasksWithStatus(cls);
-  const { data: lecs } = await sb.from("lectures").select("id,title,created_at").eq("class_id", cls.id).order("created_at", { ascending: false }).limit(3);
+  const { data: lecs } = await sb.from("lectures").select("id,title,created_at").eq("class_id", cls.id).order("created_at", { ascending: false });
   const todo = tasks.filter((t) => t.st !== "done");
+  const liveLec = cls.live_slide ? (lecs || []).find((l) => l.id === cls.live_lecture) || lecs?.[0] : null;
+  const slideTask = cls.live_slide ? await slideTaskFor(cls.live_lecture, cls.live_slide) : null;
   const m = shell("t", "/t", `
     <div class="row"><div class="grow"><h1>أهلًا، ${esc(me.full_name || "")}</h1><p class="small muted">${esc(cls.name)}</p></div>
       ${list.length > 1 ? `<select class="f" id="cls" style="width:auto">${list.map((c) => `<option value="${c.id}" ${c.id === cls.id ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>` : ""}</div>
-    <div class="card" id="live">${cls.live_slide ? `<span class="chip live" style="align-self:flex-start"><span class="dot"></span> الجلسة مباشرة الآن</span><p class="small">المدرب على الشريحة ${cls.live_slide}. افتح المحاضرة وتابع معه.</p>${lecs?.[0] ? `<a class="btn live" href="#/t/lecture/${lecs[0].id}">فتح المحاضرة</a>` : ""}` : `<span class="chip" style="align-self:flex-start">لا توجد جلسة الآن</span><p class="small muted">عند بدء الجلسة يظهر تنبيه هنا.</p>`}</div>
+    <div class="card" id="live">${cls.live_slide ? `<span class="chip live" style="align-self:flex-start"><span class="dot"></span> الجلسة مباشرة الآن</span><p class="small">المدرب على الشريحة ${cls.live_slide}${liveLec ? ` من «${esc(liveLec.title)}»` : ""}. افتح المحاضرة وتابع معه.</p>${slideTask ? `<a class="btn" href="#/t/task/${slideTask.id}">تمرين هذه الشريحة: ${esc(slideTask.title)}</a>` : ""}${liveLec ? `<a class="btn live" href="#/t/lecture/${liveLec.id}">فتح المحاضرة</a>` : ""}` : `<span class="chip" style="align-self:flex-start">لا توجد جلسة الآن</span><p class="small muted">عند بدء الجلسة يظهر تنبيه هنا.</p>`}</div>
     <h3>المطلوب منك</h3>
     <div class="list">${todo.length ? todo.map(taskRow).join("") : `<div class="empty">لا توجد تمارين مفتوحة 👏</div>`}</div>
-    ${lecs?.length ? `<h3>المحاضرات</h3><div class="list">${lecs.map((l) => `<a href="#/t/lecture/${l.id}">${ICON.slides}<div class="grow t">${esc(l.title)}</div><span class="tiny muted">${ago(l.created_at)}</span></a>`).join("")}</div>` : ""}`);
+    ${lecs?.length ? `<h3>المحاضرات وتمارينها</h3>${lecs.slice(0, 3).map((l) => lecBlock(l, tasks)).join("")}${lecs.length > 3 ? `<a class="btn plain" href="#/t/tasks">كل المحاضرات</a>` : ""}` : ""}`);
+  if (slideTask) popSlideTask(slideTask);
   const sel = $("#cls", m); if (sel) sel.onchange = () => { localStorage.setItem("nawa.class", sel.value); render(); };
   const ch = sb.channel("cls-" + cls.id).on("postgres_changes", { event: "UPDATE", schema: "public", table: "classes", filter: `id=eq.${cls.id}` }, () => render()).subscribe();
   onLeave(() => sb.removeChannel(ch));
@@ -199,9 +271,14 @@ route("/t", async () => {
 route("/t/tasks", async () => {
   loading(); await loadMe(); if (!need("trainee")) return;
   const list = await myClasses(); if (!list.length) return go("/t/join");
-  const tasks = await loadTasksWithStatus(currentClass(list));
-  const topics = [...new Set(tasks.map((t) => t.topic))];
-  shell("t", "/t/tasks", `<h1>التمارين</h1>${topics.length ? topics.map((tp) => `<h3>${esc(tp)}</h3><div class="list">${tasks.filter((t) => t.topic === tp).map(taskRow).join("")}</div>`).join("") : `<div class="card empty">لم تصلك تمارين بعد.</div>`}`);
+  const cls = currentClass(list);
+  const tasks = await loadTasksWithStatus(cls);
+  const { data: lecs } = await sb.from("lectures").select("id,title,created_at").eq("class_id", cls.id).order("created_at", { ascending: false });
+  const loose = tasks.filter((t) => !t.lecture_id || !(lecs || []).some((l) => l.id === t.lecture_id));
+  shell("t", "/t/tasks", `<h1>المحاضرات والتمارين</h1><p class="small muted">كل محاضرة وتحتها تمارينها.</p>
+    ${(lecs || []).map((l) => lecBlock(l, tasks)).join("")}
+    ${loose.length ? `<div class="lec"><div class="lechead">${ICON.code}<b class="grow">تمارين إضافية</b></div><div class="list">${loose.map(taskRow).join("")}</div></div>` : ""}
+    ${!lecs?.length && !tasks.length ? `<div class="card empty">لم تصلك محاضرات أو تمارين بعد.</div>` : ""}`);
 });
 
 route("/t/task/:id", async ({ id }) => {
@@ -217,8 +294,8 @@ route("/t/task/:id", async ({ id }) => {
     <div class="ws">
       <section class="pane">
         <div class="card"><span class="chip new" style="align-self:flex-start">${esc(task.topic)}</span><p>${esc(task.prompt)}</p></div>
-        ${lec?.file_path ? `<div class="card"><div class="row"><b class="grow small">${esc(lec.title)}</b><span class="tiny muted" id="pg"></span></div><div class="slidebox"><canvas id="cv"></canvas></div>
-          <div class="slidenav"><button class="btn plain sm" id="prev">›</button><span class="grow"></span><button class="btn plain sm" id="next">‹</button></div></div>` : ""}
+        ${lec?.file_path ? `<div class="card"><div class="row"><b class="grow small">${task.slide ? `التمرين من الشريحة ${task.slide} · ` : ""}${esc(lec.title)}</b><span class="tiny muted" id="pg"></span></div><div class="slidebox"><canvas id="cv"></canvas></div>
+          <div class="slidenav"><button class="btn plain sm" id="prev">›</button><span class="grow"></span><button class="btn plain sm" id="zoom">⤢ تكبير</button><button class="btn plain sm" id="next">‹</button></div></div>` : ""}
         <div id="result">${resultHTML(sub)}</div>
         ${(notes || []).map((n) => `<div class="card"><span class="tiny muted">ملاحظة من المدرب · ${ago(n.created_at)}</span><p class="small">${esc(n.body)}</p></div>`).join("")}
       </section>
@@ -239,7 +316,7 @@ route("/t/task/:id", async ({ id }) => {
   }, 5000);
   onLeave(() => { clearInterval(timer); ws.destroy(); });
 
-  if (lec?.file_path) mountSlides(m, lec.file_path, 1);
+  if (lec?.file_path) mountSlides(m, lec.file_path, task.slide || 1);
 
   $("#submit", m).onclick = async (e) => {
     const b = e.target; b.disabled = true; b.innerHTML = '<span class="spinner"></span> جارٍ التسليم';
@@ -261,11 +338,12 @@ function resultHTML(s) {
   const p = pct(s.typed_chars, s.pasted_chars);
   if (!s.ai_verdict) return `<div class="card"><span class="chip ok" style="align-self:flex-start">تم التسليم</span><span class="tiny muted">الكتابة اليدوية: ${p ?? "—"}%</span></div>`;
   return `<div class="verdict ${s.ai_verdict}"><b>${VERDICT[s.ai_verdict][0]}</b>${s.ai_feedback ? `<p class="small">${esc(s.ai_feedback)}</p>` : ""}
+    ${s.ai_verdict !== "correct" ? `<p class="small"><b>لا بأس.</b> عدّل الكود حسب التلميح ثم اضغط «إعادة التسليم». المدرب يرى آخر نسخة.</p>` : ""}
     <span class="tiny muted">الكتابة اليدوية: ${p ?? "—"}% · ${s.trainer_override ? "قرار المدرب" : "تقييم الذكاء الاصطناعي، والقرار للمدرب"}</span></div>`;
 }
 
 // slides viewer (shared). follow = realtime class slide for trainees; onPage = trainer sets live slide
-async function mountSlides(root, path, start = 1, { onPage, follow } = {}) {
+async function mountSlides(root, path, start = 1, { onPage, follow, onShow } = {}) {
   const cv = $("#cv", root); if (!cv) return;
   let doc, page = start;
   try {
@@ -278,7 +356,9 @@ async function mountSlides(root, path, start = 1, { onPage, follow } = {}) {
     await renderPage(doc, page, cv);
     const pg = $("#pg", root); if (pg) pg.textContent = `${page} / ${doc.numPages}`;
     if (!fromRemote && onPage) onPage(page);
+    if (onShow) onShow(page);
   };
+  const z = $("#zoom", root); if (z) z.onclick = () => { if (follow) follow.off(); zoomSlide(doc, page, (n) => show(n)); };
   $("#prev", root).onclick = () => { if (follow) follow.off(); show(page - 1); };
   $("#next", root).onclick = () => { if (follow) follow.off(); show(page + 1); };
   await show(page, true);
@@ -287,30 +367,44 @@ async function mountSlides(root, path, start = 1, { onPage, follow } = {}) {
 
 route("/t/lecture/:id", async ({ id }) => {
   loading(); await loadMe(); if (!need("trainee")) return;
-  const { data: lec } = await sb.from("lectures").select("*, classes(id,live_slide,live_at)").eq("id", id).single();
+  const { data: lec } = await sb.from("lectures").select("*, classes!lectures_class_id_fkey(id,live_slide,live_at,live_lecture)").eq("id", id).single();
   fixLive(lec?.classes);
   if (!lec) return shell("t", "/t", `<div class="card empty">المحاضرة غير متاحة.</div>`);
-  const { data: tasks } = await sb.from("tasks").select("id,title,topic").eq("lecture_id", id);
+  const { data: tasks } = await sb.from("tasks").select("id,title,topic,slide").eq("lecture_id", id).order("slide", { nullsFirst: false });
+  const { data: mine } = await sb.from("slide_pulse").select("slide").eq("lecture_id", id);
+  const lost = new Set((mine || []).map((x) => x.slide));
   let following = !!lec.classes?.live_slide;
   const m = shell("t", "/t", `
     <div class="row"><h2 class="grow">${esc(lec.title)}</h2>${lec.classes?.live_slide ? `<span class="chip live"><span class="dot"></span> مباشر</span>` : ""}
       <button class="switch" id="follow" aria-pressed="${following}"><i></i>متابعة شريحة المدرب</button></div>
     <div class="ws">
       <section class="pane"><div class="slidebox"><canvas id="cv"></canvas></div>
-        <div class="slidenav"><button class="btn plain sm" id="prev">›</button><span class="grow small muted" id="pg" style="text-align:center"></span><button class="btn plain sm" id="next">‹</button></div>
-        ${tasks?.length ? `<h3>تمارين هذه المحاضرة</h3><div class="list">${tasks.map((t) => `<a href="#/t/task/${t.id}"><div class="grow t">${esc(t.title)}</div><span class="chip new">${esc(t.topic)}</span></a>`).join("")}</div>` : ""}</section>
+        <div class="slidenav"><button class="btn plain sm" id="prev">›</button><span class="grow small muted" id="pg" style="text-align:center"></span><button class="btn plain sm" id="zoom">⤢ تكبير</button><button class="btn plain sm" id="next">‹</button></div>
+        <button class="pulse" id="pulse" aria-pressed="false">🤔 لم أفهم هذه الشريحة</button>
+        <p class="tiny muted" style="margin-top:-6px">يصل للمدرب العدد فقط، بدون اسمك.</p>
+        ${tasks?.length ? `<h3>تمارين هذه المحاضرة</h3><div class="list">${tasks.map((t) => `<a href="#/t/task/${t.id}"><div class="grow t">${esc(t.title)}</div>${t.slide ? `<span class="tiny muted">الشريحة ${t.slide}</span>` : ""}<span class="chip new">${esc(t.topic)}</span></a>`).join("")}</div>` : ""}</section>
       <section class="pane"><h3>جرّب أمثلة المحاضرة هنا</h3><div id="ws" class="pane"></div><p class="ai-note">مساحة تجربة حرة، لا تُحفظ ولا تُقيَّم.</p></section>
     </div>`, "wide");
   const ws = mountWorkspace($("#ws", m), { code: "<h1>مرحبا</h1>\n<script>\n  \n<\/script>" });
   const fbtn = $("#follow", m);
   const follow = { off() { following = false; fbtn.setAttribute("aria-pressed", "false"); } };
-  let sl; mountSlides(m, lec.file_path, lec.classes?.live_slide || 1, { follow }).then((x) => (sl = x));
+  const pb = $("#pulse", m); let cur = 1;
+  const paintPulse = (n) => { cur = n; const on = lost.has(n); pb.setAttribute("aria-pressed", on); pb.textContent = on ? "✓ وصل للمدرب أن هذه الشريحة تحتاج توضيحًا (اضغط للتراجع)" : "🤔 لم أفهم هذه الشريحة"; };
+  pb.onclick = async () => {
+    const n = cur, on = lost.has(n); pb.disabled = true;
+    const { error } = on ? await sb.from("slide_pulse").delete().eq("lecture_id", id).eq("slide", n) : await sb.from("slide_pulse").insert({ lecture_id: id, slide: n });
+    pb.disabled = false; if (error) return toast(friendly(error));
+    on ? lost.delete(n) : lost.add(n); paintPulse(n);
+  };
+  let sl; mountSlides(m, lec.file_path, lec.classes?.live_slide || 1, { follow, onShow: paintPulse }).then((x) => (sl = x));
+  const checkPop = async (c) => { if (c.live_slide && c.live_lecture === id) { const t = await slideTaskFor(id, c.live_slide); if (t) popSlideTask(t); } };
+  if (lec.classes?.live_slide) checkPop(lec.classes);
   fbtn.onclick = async () => {
     following = !following; fbtn.setAttribute("aria-pressed", following);
     if (following) { const { data } = await sb.from("classes").select("live_slide").eq("id", lec.class_id).single(); if (data?.live_slide && sl) sl.show(data.live_slide, true); }
   };
   const ch = sb.channel("live-" + lec.class_id).on("postgres_changes", { event: "UPDATE", schema: "public", table: "classes", filter: `id=eq.${lec.class_id}` },
-    (p) => { if (following && p.new.live_slide && sl) sl.show(p.new.live_slide, true); }).subscribe();
+    (p) => { if (following && p.new.live_slide && sl) sl.show(p.new.live_slide, true); checkPop(p.new); }).subscribe();
   onLeave(() => { sb.removeChannel(ch); ws.destroy(); });
 });
 
@@ -372,7 +466,7 @@ route("/m/class/:id", async ({ id }) => {
   loading(); await loadMe(); if (!need("trainer")) return;
   const [{ data: c }, { data: lecs }, { data: tasks }, { count: nMem }] = await Promise.all([
     sb.from("classes").select("*").eq("id", id).single(),
-    sb.from("lectures").select("id,title,created_at").eq("class_id", id).order("created_at", { ascending: false }),
+    sb.from("lectures").select("id,title,hidden,created_at").eq("class_id", id).order("created_at", { ascending: false }),
     sb.from("tasks").select("id,title,topic,target_user,created_at,submissions(submitted_at)").eq("class_id", id).order("created_at", { ascending: false }),
     sb.from("members").select("user_id", { count: "exact", head: true }).eq("class_id", id),
   ]);
@@ -387,29 +481,43 @@ route("/m/class/:id", async ({ id }) => {
         <p class="small muted">من أنجز، ونسبة الكتابة اليدوية، ووقت الحل، والأخطاء المتكررة.</p></div>
     </div>
     <h3>المحاضرات</h3>
-    <div class="list">${lecs?.length ? lecs.map((l) => `<a href="#/m/lecture/${l.id}">${ICON.slides}<div class="grow t">${esc(l.title)}</div><span class="tiny muted">${ago(l.created_at)}</span></a>`).join("") : `<div class="empty">ارفع أول محاضرة (PDF).</div>`}</div>
+    <div class="list">${lecs?.length ? lecs.map((l) => `<a href="#/m/lecture/${l.id}">${ICON.slides}<div class="grow t">${esc(l.title)}</div>${l.hidden ? `<span class="chip">مخفية عن المتدربين</span>` : ""}<span class="tiny muted">${ago(l.created_at)}</span></a>`).join("") : `<div class="empty">ارفع أول محاضرة (PDF).</div>`}</div>
     <form class="card" id="up"><h3>رفع محاضرة</h3>
       <label class="f">العنوان<input class="f" name="title" required maxlength="100" placeholder="المحاضرة 3: الحلقات"></label>
-      <label class="f">ملف PDF (حتى 15 ميجا)<input class="f" name="file" type="file" accept="application/pdf" required></label>
-      <button class="btn">رفع</button><p class="tiny muted" id="upmsg"></p></form>
+      <label class="f">ملف PDF (حتى 15 ميجا)<input class="f" name="file" type="file" accept="application/pdf,.pdf" required><span class="tiny muted">إذا كان العرض بوربوينت، احفظه PDF أولًا.</span></label>
+      <button class="btn">رفع</button><p class="small" id="upmsg" style="color:var(--bad)"></p></form>
     <h3>التمارين المرسلة</h3>
     <div class="list">${tasks?.length ? tasks.map((t) => { const done = (t.submissions || []).filter((s) => s.submitted_at).length;
       return `<a href="#/m/task/${t.id}"><div class="grow"><div class="t">${esc(t.title)}</div><div class="tiny muted">${esc(t.topic)}${t.target_user ? " · لمتدرب محدد" : ""}</div></div><span class="small">${done}/${t.target_user ? 1 : nMem ?? 0}</span></a>`; }).join("") : `<div class="empty">بعد رفع المحاضرة، اختر المواضيع ونرسل التمارين.</div>`}</div>
-    <details class="card"><summary><b>إضافة تمرين يدوي</b></summary>${taskForm()}</details>`, "");
+    <details class="card"><summary><b>إضافة تمرين يدوي</b></summary>${taskForm()}</details>
+    <details class="card"><summary><b>إعدادات الشعبة</b></summary>
+      <form class="row" id="ren"><input class="f grow" name="name" required maxlength="80" value="${esc(c.name)}"><button class="btn plain">حفظ الاسم</button></form>
+      <button class="btn plain" id="del">حذف الشعبة</button>
+      <span class="tiny muted">الحذف نهائي: تُحذف المحاضرات والتمارين وتسليمات المتدربين في هذه الشعبة.</span></details>`, "");
+  $("#ren", m).onsubmit = async (e) => {
+    e.preventDefault(); const { error } = await sb.from("classes").update({ name: new FormData(e.target).get("name").trim() }).eq("id", id);
+    toast(error ? friendly(error) : "تم تغيير الاسم"); if (!error) render();
+  };
+  twoTap($("#del", m), "اضغط مرة ثانية لتأكيد الحذف", async () => {
+    // files first (only the class trainer can remove them; the demo class's files are protected)
+    const { data: files } = await sb.storage.from("lectures").list(id, { limit: 1000 });
+    if (files?.length) await sb.storage.from("lectures").remove(files.map((f) => `${id}/${f.name}`));
+    const { error } = await sb.from("classes").delete().eq("id", id);
+    if (error) return toast(friendly(error), 4000);
+    toast("حُذفت الشعبة"); go("/m");
+  });
   $("#copy", m).onclick = () => { navigator.clipboard?.writeText(c.code); toast("تم نسخ الرمز"); };
   $("#newcode", m).onclick = async (e) => {
     const b = e.currentTarget; if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = "تأكيد تغيير الرمز"; return; }
     const { error } = await sb.rpc("new_class_code", { p_class: id }); toast(error ? friendly(error) : "تم إنشاء رمز جديد"); if (!error) render();
   };
-  const end = $("#end", m); if (end) end.onclick = async () => { await sb.from("classes").update({ live_slide: null }).eq("id", id); render(); };
+  const end = $("#end", m); if (end) end.onclick = async () => { await sb.from("classes").update({ live_slide: null, live_lecture: null }).eq("id", id); render(); };
   $("#up", m).onsubmit = async (e) => {
-    e.preventDefault(); const f = new FormData(e.target); const file = f.get("file"); const b = $("button", e.target);
-    if (file.type !== "application/pdf") return ($("#upmsg").textContent = "يجب أن يكون الملف PDF");
-    if (file.size > 15 * 1024 * 1024) return ($("#upmsg").textContent = "الملف أكبر من 15 ميجا");
+    e.preventDefault(); const f = new FormData(e.target); const b = $("button", e.target); $("#upmsg").textContent = "";
     b.disabled = true; b.innerHTML = '<span class="spinner"></span> جارٍ الرفع';
-    const path = `${id}/${crypto.randomUUID()}.pdf`;
-    const { error } = await sb.storage.from("lectures").upload(path, file, { contentType: "application/pdf" });
-    if (error) { b.disabled = false; b.textContent = "رفع"; return ($("#upmsg").textContent = friendly(error)); }
+    let path;
+    try { path = await uploadPdf(id, f.get("file")); }
+    catch (er) { b.disabled = false; b.textContent = "رفع"; return ($("#upmsg").textContent = friendly(er)); }
     const { data: lec, error: e2 } = await sb.from("lectures").insert({ class_id: id, title: f.get("title").trim(), file_path: path }).select().single();
     if (e2) { b.disabled = false; b.textContent = "رفع"; return ($("#upmsg").textContent = friendly(e2)); }
     go("/m/lecture/" + lec.id + "?extract=1");
@@ -424,9 +532,10 @@ function taskForm(d = {}, i = "") {
     <label class="f">المطلوب<textarea class="f" name="prompt" rows="2" required>${esc(d.prompt || "")}</textarea></label>
     <label class="f">الناتج المتوقع والمفهوم (للتقييم فقط، لا يظهر للمتدرب)<textarea class="f" name="expected" rows="2">${esc(d.expected || "")}</textarea></label>
     <label class="f">كود البداية<textarea class="f mono" name="starter_code" rows="4" dir="ltr">${esc(d.starter_code || "")}</textarea></label>
+    <label class="f">رقم الشريحة (اختياري)<input class="f" name="slide" type="number" min="1" max="999" value="${d.slide ?? ""}" style="max-width:120px"><span class="tiny muted">«تمرين الشريحة»: يظهر التمرين للمتدربين تلقائيًا عندما تصل لهذه الشريحة في الجلسة المباشرة.</span></label>
     ${i === "" ? `<button class="btn" data-send-one>إرسال للفصل كاملًا</button>` : ""}</div>`;
 }
-function readTask(el) { const g = (n) => $(`[name="${n}"]`, el).value.trim(); return { topic: g("topic"), title: g("title"), prompt: g("prompt"), expected: g("expected"), starter_code: $(`[name="starter_code"]`, el).value }; }
+function readTask(el) { const g = (n) => $(`[name="${n}"]`, el).value.trim(); const sl = parseInt(g("slide"), 10); return { topic: g("topic"), title: g("title"), prompt: g("prompt"), expected: g("expected"), starter_code: $(`[name="starter_code"]`, el).value, slide: sl > 0 ? sl : null }; }
 function bindTaskForm(m, classId, lectureId) {
   const b = $("[data-send-one]", m); if (!b) return;
   b.onclick = async (e) => {
@@ -439,18 +548,31 @@ function bindTaskForm(m, classId, lectureId) {
 
 route("/m/lecture/:id", async ({ id }) => {
   loading(); await loadMe(); if (!need("trainer")) return;
-  const { data: lec } = await sb.from("lectures").select("*, classes(id,name,live_slide,live_at)").eq("id", id).single();
+  const { data: lec } = await sb.from("lectures").select("*, classes!lectures_class_id_fkey(id,name,live_slide,live_at,live_lecture)").eq("id", id).single();
   fixLive(lec?.classes);
   if (!lec) return shell("m", "/m", `<div class="card empty">المحاضرة غير موجودة.</div>`);
   const { data: members } = await sb.from("members").select("user_id, profiles(full_name)").eq("class_id", lec.class_id);
-  const live = !!lec.classes.live_slide;
+  const live = !!lec.classes.live_slide && (!lec.classes.live_lecture || lec.classes.live_lecture === id);
+  const { data: ltasks } = await sb.from("tasks").select("id,title,slide").eq("lecture_id", id).order("slide", { nullsFirst: false });
   const m = shell("m", "/m", `
     <div class="row"><a class="btn plain sm" href="#/m/class/${lec.class_id}">→ ${esc(lec.classes.name)}</a><h2 class="grow">${esc(lec.title)}</h2>
       <button class="btn ${live ? "plain" : "live"} sm" id="live">${live ? "إنهاء الجلسة" : "بدء الجلسة المباشرة"}</button></div>
     <div class="ws">
       <section class="pane"><div class="slidebox"><canvas id="cv"></canvas></div>
-        <div class="slidenav"><button class="btn plain sm" id="prev">›</button><span class="grow small muted" id="pg" style="text-align:center"></span><button class="btn plain sm" id="next">‹</button></div>
-        <p class="tiny muted" id="livehint">${live ? "المتدربون الذين فعّلوا «متابعة شريحة المدرب» يتنقلون معك." : "ابدأ الجلسة ليتابع المتدربون الشريحة معك."}</p></section>
+        <div class="slidenav"><button class="btn plain sm" id="prev">›</button><span class="grow small muted" id="pg" style="text-align:center"></span><button class="btn plain sm" id="zoom">⤢ تكبير</button><button class="btn plain sm" id="next">‹</button></div>
+        <div id="here"></div>
+        <p class="tiny muted" id="livehint">${live ? "المتدربون الذين فعّلوا «متابعة شريحة المدرب» يتنقلون معك." : "ابدأ الجلسة ليتابع المتدربون الشريحة معك."}</p>
+        <div class="card"><div class="row"><h3 class="grow">نبض الشريحة</h3><span class="tiny muted">يتحدّث كل بضع ثوانٍ</span></div>
+          <p class="tiny muted">عدد المتدربين الذين ضغطوا «لم أفهم» على كل شريحة. لا تظهر الأسماء.</p><div class="btns" id="pulses"><span class="small muted">لا أحد حتى الآن.</span></div>
+          <div id="simp"></div></div>
+        <div class="card"><h3>تمارين الشرائح</h3><p class="tiny muted">اربط التمرين برقم شريحة، فيظهر للمتدربين لحظة وصولك لها في الجلسة المباشرة.</p>
+          ${ltasks?.length ? ltasks.map((t) => `<div class="row small"><a class="grow" href="#/m/task/${t.id}">${esc(t.title)}</a><label class="row tiny">الشريحة<input class="f" type="number" min="1" max="999" data-slide="${t.id}" value="${t.slide ?? ""}" style="width:76px"></label></div>`).join("") : `<p class="small muted">لا توجد تمارين لهذه المحاضرة بعد.</p>`}</div>
+        <details class="card"><summary><b>إدارة المحاضرة</b></summary>
+          <form class="row" id="ren"><input class="f grow" name="title" required maxlength="100" value="${esc(lec.title)}"><button class="btn plain">حفظ العنوان</button></form>
+          <form class="pane" id="rep"><label class="f">استبدال الملف (PDF)<input class="f" name="file" type="file" accept="application/pdf,.pdf" required></label><button class="btn plain">استبدال الملف</button><p class="small" id="repmsg" style="color:var(--bad)"></p></form>
+          <button class="switch" id="hide" aria-pressed="${!!lec.hidden}"><i></i>إخفاء المحاضرة عن المتدربين</button>
+          <span class="tiny muted">المخفية لا يراها المتدربون حتى تُظهرها. التمارين المرسلة تبقى كما هي.</span>
+          <button class="btn plain" id="dellec">حذف المحاضرة</button></details></section>
       <section class="pane">
         <div class="card"><div class="row"><h3 class="grow">المواضيع</h3><button class="btn ghost sm" id="extract">${lec.topics?.length ? "إعادة الاستخراج" : "استخراج المواضيع بالذكاء"}</button></div>
           <div id="topics">${topicsHTML(lec.topics)}</div>
@@ -460,12 +582,71 @@ route("/m/lecture/:id", async ({ id }) => {
       </section>
     </div>`, "wide");
   let sl;
-  const setLive = async (n) => { if (live) await sb.from("classes").update({ live_slide: n }).eq("id", lec.class_id); };
-  const slReady = mountSlides(m, lec.file_path, lec.classes.live_slide || 1, { onPage: setLive }).then((x) => (sl = x)); // buttons work while the PDF loads
+  const setLive = async (n) => {
+    if (!live) return;
+    await sb.from("classes").update({ live_slide: n }).eq("id", lec.class_id);
+    const t = (ltasks || []).find((x) => x.slide === n); if (t) toast(`ظهر «${t.title}» للمتدربين الآن (تمرين الشريحة ${n})`, 3500);
+  };
+  let counts = {};
+  const paintHere = (n) => {
+    const t = (ltasks || []).filter((x) => x.slide === n), c = counts[n] || 0;
+    $("#here", m).innerHTML = (t.length ? `<div class="here">📌 على هذه الشريحة تمرين: <b>${esc(t.map((x) => x.title).join("، "))}</b>${live ? " (يظهر للمتدربين الآن)" : ""}</div>` : "")
+      + (c ? `<div class="here bad">🤔 ${c} لم يفهموا هذه الشريحة <button class="btn plain sm" data-simp="${n}">اقترح شرحًا أبسط</button></div>` : "");
+    const sb2 = $("[data-simp]", m); if (sb2) sb2.onclick = () => simplify(n);
+  };
+  const slReady = mountSlides(m, lec.file_path, (live && lec.classes.live_slide) || 1, { onPage: setLive, onShow: paintHere }).then((x) => (sl = x)); // buttons work while the PDF loads
   $("#live", m).onclick = async () => {
-    await sb.from("classes").update({ live_slide: live ? null : sl?.page || 1 }).eq("id", lec.class_id);
+    await sb.from("classes").update(live ? { live_slide: null, live_lecture: null } : { live_slide: sl?.page || 1, live_lecture: id }).eq("id", lec.class_id);
     toast(live ? "انتهت الجلسة" : "بدأت الجلسة، وسيظهر التنبيه للمتدربين"); render();
   };
+  // «نبض الشريحة»: counts only, refreshed every few seconds
+  const loadPulse = async () => {
+    const { data } = await sb.rpc("pulse_counts", { p_lecture: id }); if (!data) return;
+    counts = Object.fromEntries(data.map((r) => [r.slide, r.n]));
+    $("#pulses", m).innerHTML = data.length ? data.map((r) => `<button class="chip ${r.n >= 3 ? "bad" : "new"}" data-go="${r.slide}">الشريحة ${r.slide}: ${r.n}</button>`).join("") : `<span class="small muted">لا أحد حتى الآن.</span>`;
+    $$("[data-go]", m).forEach((b) => (b.onclick = () => sl && sl.show(+b.dataset.go)));
+    if (sl) paintHere(sl.page);
+  };
+  loadPulse(); const pt = setInterval(loadPulse, 6000); onLeave(() => clearInterval(pt));
+  const simplify = async (n) => {
+    const box = $("#simp", m); box.innerHTML = `<p class="small"><span class="spinner"></span> يجهّز شرحًا أبسط للشريحة ${n}…</p>`;
+    try {
+      const pageText = (await (await sl.doc.getPage(n)).getTextContent()).items.map((x) => x.str).join(" ");
+      const r = await ai("simplify", { lecture_id: id, text: pageText, count: counts[n] || 0 });
+      box.innerHTML = `<div class="card" style="background:var(--sunk)"><b class="small">اقتراح لشرح الشريحة ${n} بطريقة أبسط</b>
+        <p class="small"><b>لماذا قد لا يفهمون:</b> ${esc(r.why)}</p><p class="small"><b>اشرحها هكذا:</b> ${esc(r.explain)}</p>
+        ${r.example ? `<pre class="errsnip" dir="ltr">${esc(r.example)}</pre>` : ""}<p class="small"><b>اسأل للتأكد:</b> ${esc(r.check)}</p>
+        <p class="ai-note">اقتراح من الذكاء الاصطناعي، والقرار لك. لا تُرسل أي أسماء، فقط نص الشريحة والعدد.</p></div>`;
+    } catch (e) { box.innerHTML = `<p class="small">${esc(e.message)}</p>`; }
+  };
+  $$("[data-slide]", m).forEach((inp) => (inp.onchange = async () => {
+    const v = parseInt(inp.value, 10) || null; const { error } = await sb.from("tasks").update({ slide: v }).eq("id", inp.dataset.slide);
+    if (error) return toast(friendly(error)); const t = ltasks.find((x) => x.id === inp.dataset.slide); if (t) t.slide = v; if (sl) paintHere(sl.page);
+    toast(v ? `رُبط التمرين بالشريحة ${v}` : "أُلغي ربط الشريحة");
+  }));
+  // manage lecture: rename, replace file, hide, delete
+  $("#ren", m).onsubmit = async (e) => { e.preventDefault(); const { error } = await sb.from("lectures").update({ title: new FormData(e.target).get("title").trim() }).eq("id", id); toast(error ? friendly(error) : "تم الحفظ"); if (!error) render(); };
+  $("#rep", m).onsubmit = async (e) => {
+    e.preventDefault(); const b = $("button", e.target); b.disabled = true; b.innerHTML = '<span class="spinner"></span> جارٍ الرفع'; $("#repmsg", m).textContent = "";
+    try {
+      const path = await uploadPdf(lec.class_id, new FormData(e.target).get("file"));
+      const { error } = await sb.from("lectures").update({ file_path: path }).eq("id", id);
+      if (error) { await sb.storage.from("lectures").remove([path]); throw error; }
+      if (lec.file_path) await sb.storage.from("lectures").remove([lec.file_path]);
+      toast("تم استبدال الملف"); render();
+    } catch (er) { b.disabled = false; b.textContent = "استبدال الملف"; $("#repmsg", m).textContent = friendly(er); }
+  };
+  $("#hide", m).onclick = async (e) => {
+    const v = e.currentTarget.getAttribute("aria-pressed") !== "true";
+    const { error } = await sb.from("lectures").update({ hidden: v }).eq("id", id);
+    toast(error ? friendly(error) : v ? "أُخفيت المحاضرة عن المتدربين" : "ظهرت المحاضرة للمتدربين"); if (!error) render();
+  };
+  twoTap($("#dellec", m), "اضغط مرة ثانية لتأكيد الحذف", async () => {
+    const { error } = await sb.from("lectures").delete().eq("id", id);
+    if (error) return toast(friendly(error), 4000);
+    if (lec.file_path) await sb.storage.from("lectures").remove([lec.file_path]);
+    toast("حُذفت المحاضرة"); go("/m/class/" + lec.class_id);
+  });
   const doExtract = async () => {
     const b = $("#extract", m); b.disabled = true; b.innerHTML = '<span class="spinner"></span> يقرأ المحاضرة';
     try {
@@ -485,6 +666,7 @@ route("/m/lecture/:id", async ({ id }) => {
     const b = e.target; b.disabled = true; b.innerHTML = '<span class="spinner"></span> يجهّز التمارين';
     try {
       const { tasks } = await ai("tasks", { class_id: lec.class_id, topics: chosen });
+      tasks.forEach((t, i) => { if (!t.slide) t.slide = (chosen.find((c) => c.topic === t.topic) || chosen[i])?.page ?? null; });
       $("#drafts", m).innerHTML = `<div class="card"><h3>مسودات التمارين</h3><p class="small muted">راجع وعدّل، ثم اختر لمن ترسل.</p>
         ${tasks.map((t, i) => `<div class="card" style="background:var(--sunk)"><label class="row small"><input type="checkbox" checked data-pick="${i}"> إرسال هذا التمرين</label>${taskForm(t, i)}</div>`).join("")}
         <div class="seg" role="group"><button type="button" data-to="all" aria-pressed="true">الفصل كاملًا</button><button type="button" data-to="one" aria-pressed="false">متدرب محدد</button></div>
@@ -532,19 +714,20 @@ route("/m/sub/:id", async ({ id }) => {
   if (!s) return shell("m", "/m", `<div class="card empty">التسليم غير موجود.</div>`);
   const { data: notes } = await sb.from("notes").select("body,created_at").eq("submission_id", id).order("created_at");
   const p = pct(s.typed_chars, s.pasted_chars);
+  const mins = fmtMin(Math.round((new Date(s.submitted_at) - new Date(s.opened_at)) / 60000));
   const m = shell("m", "/m", `<div class="row"><a class="btn plain sm" href="#/m/task/${s.task_id}">→ التسليمات</a><h2 class="grow">تسليم: ${esc(s.profiles?.full_name || "متدرب")}</h2></div>
-    <div class="ws">
+    <div class="stats"><span>⏱ وقت الحل <b>${mins}</b></span><span class="${p != null && p < 50 ? "bad" : ""}">⌨ كتابة يدوية <b>${p ?? "—"}%</b></span><span class="${s.pasted_chars ? "bad" : ""}">📋 ${s.pasted_chars ? `لصق <b>${s.pasted_chars}</b> حرف` : "بدون لصق"}</span>${s.in_session ? `<span>🎓 حُلّ أثناء المحاضرة</span>` : ""}${(notes || []).length ? `<span>📝 ${(notes || []).length} ملاحظة</span>` : ""}</div>
+    <div class="ws review">
+      <section class="pane"><h3>كود المتدرب</h3><div id="ws" class="pane"></div><p class="ai-note">هذا كود المتدرب كما سلّمه. التعديل هنا للتجربة فقط ولا يُحفظ.</p></section>
       <section class="pane">
         <div class="card"><b>${esc(s.tasks.title)}</b><p class="small">${esc(s.tasks.prompt)}</p><p class="tiny muted">المتوقع: ${esc(s.tasks.expected)}</p></div>
-        <div class="kpis"><div class="kpi"><b>${p ?? "—"}%</b><span>كتابة يدوية</span></div><div class="kpi"><b>${fmtMin(Math.round((new Date(s.submitted_at) - new Date(s.opened_at)) / 60000))}</b><span>وقت الحل</span></div></div>
         ${s.ai_verdict ? `<div class="verdict ${s.ai_verdict}"><b>${VERDICT[s.ai_verdict][0]}</b><p class="small">${esc(s.ai_feedback || "")}</p><span class="tiny muted">${s.trainer_override ? "قرارك" : "اقتراح الذكاء الاصطناعي"}</span></div>` : `<div class="card small muted">لم يُقيَّم آليًا.</div>`}
         <div class="card"><b class="small">قرارك النهائي</b><div class="btns">${Object.entries(VERDICT).map(([k, [l]]) => `<button class="btn ${s.ai_verdict === k ? "" : "plain"} sm" data-v="${k}">${l}</button>`).join("")}</div></div>
         <form class="card" id="note"><b class="small">ملاحظة للمتدرب (باتجاه واحد، بدون محادثة)</b><textarea class="f" name="body" rows="3" maxlength="1000" required></textarea><button class="btn plain">إرسال الملاحظة</button></form>
         ${(notes || []).map((n) => `<div class="card small"><span class="tiny muted">${ago(n.created_at)}</span>${esc(n.body)}</div>`).join("")}
       </section>
-      <section class="pane"><div id="ws" class="pane"></div><p class="ai-note">هذا كود المتدرب كما سلّمه. التعديل هنا للتجربة فقط ولا يُحفظ.</p></section>
     </div>`, "wide");
-  const ws = mountWorkspace($("#ws", m), { code: s.code }); onLeave(() => ws.destroy());
+  const ws = mountWorkspace($("#ws", m), { code: s.code, big: true }); onLeave(() => ws.destroy());
   $$("[data-v]", m).forEach((b) => (b.onclick = async () => { const { error } = await sb.rpc("set_verdict", { p_sub: id, p_verdict: b.dataset.v }); toast(error ? friendly(error) : "تم اعتماد قرارك"); if (!error) render(); }));
   $("#note", m).onsubmit = async (e) => {
     e.preventDefault(); const body = new FormData(e.target).get("body").trim(); if (!body) return;

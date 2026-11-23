@@ -99,6 +99,10 @@ Deno.serve(async (req) => {
       const out = await gemini(BASE + "\nصمّم تمارين قصيرة تُحل في المتصفح بـ HTML و JavaScript وتظهر نتيجتها في المعاينة (داخل الصفحة أو عبر console.log). كود البداية يكون HTML كامل قصير، والجافاسكربت داخل وسم script. اكتب الكود على عدة أسطر (سطر لكل جملة) مع مسافات بادئة، ولا تضعه في سطر واحد.",
         `المواضيع:\n${topics}\n\nلكل موضوع تمرين واحد: عنوان قصير، ونص المطلوب (سطرين)، والناتج المتوقع والمفهوم المطلوب (للتقييم فقط)، وكود بداية قصير ناقص (ليس الحل).`,
         S({ tasks: ARR(S({ topic: STR, title: STR, prompt: STR, expected: STR, starter_code: STR })) }));
+      // pin each exercise to the slide its topic came from («تمرين الشريحة»)
+      const pages: Record<string, number> = {};
+      for (const t of body.topics ?? []) if (t?.topic && Number.isInteger(t.page)) pages[t.topic] = t.page;
+      for (const t of out.tasks ?? []) if (pages[t.topic]) t.slide = pages[t.topic];
       return json(out);
     }
 
@@ -124,6 +128,20 @@ correct = الناتج صحيح والمفهوم مستخدم. partial = قري�
       const line = String(body.line_code ?? "").slice(0, 300);
       const out = await gemini(BASE + "\nاشرح رسالة الخطأ الإنجليزية للمبتدئ، ثم أعط تلميحًا واحدًا يوجّهه بدون كتابة الكود الصحيح.",
         `رسالة الخطأ: ${msg}\nالسطر: ${line}`, S({ explain: STR, hint: STR }));
+      return json(out);
+    }
+
+    // ---------- trainer: «نبض الشريحة» — trainees didn't understand a slide, suggest a simpler explanation ----------
+    if (action === "simplify") {
+      const { data: lec } = await userClient.from("lectures").select("id,class_id").eq("id", body.lecture_id).single();
+      if (!lec) return json({ error: "غير مسموح" }, 403);
+      const { data: isT } = await userClient.from("classes").select("id").eq("id", lec.class_id).eq("trainer_id", user.id).maybeSingle();
+      if (!isT) return json({ error: "للمدرب فقط" }, 403);
+      const text = String(body.text ?? "").slice(0, 4000);
+      const n = Number(body.count ?? 0) || 0;
+      const out = await gemini(BASE + "\nأنت تساعد المدرب أثناء المحاضرة: عدد من المتدربين ضغطوا «لم أفهم» على هذه الشريحة. اقترح طريقة شرح أبسط يقولها المدرب الآن خلال دقيقتين.",
+        `نص الشريحة:\n${text || "(لا يوجد نص، الشريحة صورة)"}\n\nعدد من لم يفهموا: ${n}\n\nأعطني: سبب محتمل لعدم الفهم (سطر)، وشرحًا أبسط بتشبيه من الحياة اليومية (سطرين أو ثلاثة)، ومثال كود قصير جدًا (3 أسطر كحد أقصى) يوضح الفكرة، وسؤالًا سريعًا يتأكد به المدرب أنهم فهموا.`,
+        S({ why: STR, explain: STR, example: STR, check: STR }));
       return json(out);
     }
 

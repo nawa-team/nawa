@@ -50,6 +50,38 @@ function syntaxCheck(code, isJs) {
   return null;
 }
 
+// ---------- syntax colours ----------
+const KW = "var|let|const|function|return|if|else|for|while|do|break|continue|new|class|extends|this|true|false|null|undefined|typeof|instanceof|of|in|switch|case|default|try|catch|finally|throw|async|await|import|export|public|private|protected|static|void|int|double|float|char|boolean|String|System|select|from|where|insert|update|delete|into|values|create|table";
+const JS = [[/\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$)/, "c"], [/"(?:\\.|[^"\\\n])*"?|'(?:\\.|[^'\\\n])*'?|`(?:\\.|[^`\\])*`?/, "s"],
+  [/\b\d+(?:\.\d+)?\b/, "n"], [new RegExp("\\b(?:" + KW + ")\\b"), "k"], [/[A-Za-z_$][\w$]*(?=\s*\()/, "f"]];
+const CSS = [[/\/\*[\s\S]*?(?:\*\/|$)/, "c"], [/"[^"\n]*"?|'[^'\n]*'?/, "s"], [/[\w-]+(?=\s*:[^:])/, "a"],
+  [/#[0-9a-fA-F]{3,8}\b|-?\b\d+(?:\.\d+)?(?:px|em|rem|%|vh|vw|s|deg)?/, "n"]];
+function paint(src, rules) {
+  const re = new RegExp(rules.map((r) => "(" + r[0].source + ")").join("|"), "g");
+  let out = "", i = 0;
+  for (let m; (m = re.exec(src)); ) {
+    if (!m[0]) { re.lastIndex++; continue; }
+    const k = m.slice(1).findIndex((x) => x !== undefined);
+    out += esc(src.slice(i, m.index)) + `<span class="tk-${rules[k][1]}">${esc(m[0])}</span>`; i = re.lastIndex;
+  }
+  return out + esc(src.slice(i));
+}
+const tag = (t) => t.replace(/^(<\/?)([\w-]*)([\s\S]*?)(\/?>)?$/, (m, a, n, rest, z) =>
+  `<span class="tk-t">${esc(a + n)}</span>` + paint(rest, [[/"[^"]*"?|'[^']*'?/, "s"], [/[\w:-]+/, "a"]]) + (z ? `<span class="tk-t">${esc(z)}</span>` : ""));
+export function highlight(code) {
+  if (!/<[a-z!/]/i.test(code)) return paint(code, JS); // plain JavaScript
+  const re = /<!--[\s\S]*?(?:-->|$)|(<(script|style)\b[^>]*>)([\s\S]*?)(<\/\2>|$)|<\/?[A-Za-z][^>]*>?/gi;
+  let out = "", i = 0;
+  for (let m; (m = re.exec(code)); ) {
+    if (!m[0]) { re.lastIndex++; continue; }
+    out += esc(code.slice(i, m.index)); i = re.lastIndex;
+    if (m[0].startsWith("<!--")) out += `<span class="tk-c">${esc(m[0])}</span>`;
+    else if (m[1]) out += tag(m[1]) + paint(m[3], m[2].toLowerCase() === "style" ? CSS : JS) + (m[4] ? tag(m[4]) : "");
+    else out += tag(m[0]);
+  }
+  return out + esc(code.slice(i));
+}
+
 const GUARD = `<script>
 var __n=0,__s=0;function __nl(){if(++__n>100000){__n=0;return true}if(!__s){__s=1;Promise.resolve().then(function(){__n=0;__s=0})}return false}
 function __rep(e){var l=e&&(e.line||e.lineNumber);if(!l&&e&&e.stack){var x=String(e.stack).match(/srcdoc:(\\d+)/);if(x)l=+x[1]}parent.postMessage({nawa:'err',m:e&&e.name?e.name+': '+e.message:String(e),l:l||0},'*')}
@@ -59,14 +91,30 @@ var L=console.log;console.log=function(){var a=[].map.call(arguments,function(x)
 window.addEventListener('load',function(){setTimeout(function(){parent.postMessage({nawa:'out',t:(document.body&&document.body.innerText||'').slice(0,3000)},'*')},60)});
 <\/script>`;
 
-export function mountWorkspace(root, { code = "", onChange, onError, typed = 0, pasted = 0 } = {}) {
+export function mountWorkspace(root, { code = "", onChange, onError, typed = 0, pasted = 0, big = false } = {}) {
   const st = { typed, pasted, output: "", errors: [] };
   root.innerHTML = `
-    <textarea class="editor" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="محرر الكود">${esc(code)}</textarea>
+    <div class="code${big ? " big" : ""}"><div class="gut" aria-hidden="true"></div><div class="codearea"><pre class="hl" aria-hidden="true"></pre><div class="errmark" hidden></div>
+    <textarea class="editor" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="محرر الكود">${esc(code)}</textarea></div></div>
     <div class="row"><button class="btn ghost sm" data-w="run">▶ تشغيل</button><span class="grow tiny muted" data-w="typed">الكتابة اليدوية: —</span><span class="chip bad" data-w="paste" hidden>يوجد لصق</span></div>
     <div data-w="err"></div>
     <iframe class="preview" sandbox="allow-scripts allow-modals" title="المعاينة الحية"></iframe>`;
   const ed = $(".editor", root), pv = $(".preview", root), errBox = $('[data-w="err"]', root);
+  const hl = $(".hl", root), gut = $(".gut", root), mark = $(".errmark", root);
+  let errLine = 0;
+  const paintAll = () => {
+    hl.innerHTML = highlight(ed.value) + "\n";
+    const n = ed.value.split("\n").length;
+    gut.innerHTML = Array.from({ length: n }, (_, i) => `<span${i + 1 === errLine ? ' class="e"' : ""}>${i + 1}</span>`).join("");
+    ed.style.height = "auto"; ed.style.height = Math.max(ed.scrollHeight, 260) + "px";
+    mark.hidden = !errLine || errLine > n; if (!mark.hidden) mark.style.top = `calc(var(--pad) + ${errLine - 1} * var(--lh))`;
+  };
+  ed.addEventListener("scroll", () => { hl.style.transform = `translateX(${-ed.scrollLeft}px)`; mark.style.transform = hl.style.transform; });
+  const goLine = (n) => {
+    const lines = ed.value.split("\n"); const pos = lines.slice(0, n - 1).reduce((a, l) => a + l.length + 1, 0);
+    ed.focus(); ed.setSelectionRange(pos, pos + (lines[n - 1] || "").length);
+    ed.closest(".code").scrollIntoView({ block: "nearest", behavior: "smooth" });
+  };
   const upd = () => {
     const t = st.typed + st.pasted;
     $('[data-w="typed"]', root).textContent = "الكتابة اليدوية: " + (t ? Math.round((st.typed / t) * 100) + "%" : "—");
@@ -77,13 +125,13 @@ export function mountWorkspace(root, { code = "", onChange, onError, typed = 0, 
     if (e.inputType.startsWith("insert")) st.typed += (e.data || " ").length;
   });
   ed.addEventListener("paste", (e) => { st.pasted += ((e.clipboardData && e.clipboardData.getData("text")) || "").length; setTimeout(upd); });
-  ed.addEventListener("input", () => { upd(); onChange && onChange(ed.value); });
+  ed.addEventListener("input", () => { paintAll(); upd(); onChange && onChange(ed.value); });
   ed.addEventListener("keydown", (e) => {
-    if (e.key === "Tab") { e.preventDefault(); const s = ed.selectionStart; ed.setRangeText("  ", s, ed.selectionEnd, "end"); st.typed += 2; upd(); }
+    if (e.key === "Tab") { e.preventDefault(); const s = ed.selectionStart; ed.setRangeText("  ", s, ed.selectionEnd, "end"); st.typed += 2; paintAll(); upd(); }
   });
 
   const run = () => {
-    errBox.innerHTML = ""; st.errors = []; st.output = "";
+    errBox.innerHTML = ""; st.errors = []; st.output = ""; errLine = 0; paintAll();
     const isJs = !/<[a-z!]/i.test(ed.value); // plain JS without tags runs as a script
     const head = '<!doctype html><meta charset="utf-8"><body style="font-family:system-ui;padding:8px">' + GUARD;
     st.offset = head.split("\n").length - 1 + (isJs ? 1 : 0); // so error lines match the editor
@@ -105,11 +153,16 @@ export function mountWorkspace(root, { code = "", onChange, onError, typed = 0, 
       st.errors.push(msg);
       const lineCode = lineNo ? ed.value.split("\n")[lineNo - 1] || "" : "";
       const local = localHint(msg);
-      errBox.innerHTML = `<div class="err"><code>${esc(msg)}${lineNo ? ` (line ${lineNo})` : ""}</code>
+      if (lineNo && !errLine) { errLine = lineNo; paintAll(); }
+      errBox.innerHTML = `<div class="err">
+        <div class="row"><b class="grow">${lineNo ? `خطأ في السطر ${lineNo}` : "خطأ أثناء التشغيل"}</b>${lineNo ? `<button class="btn plain sm" data-w="goto">اذهب للسطر</button>` : ""}</div>
+        ${lineNo ? `<pre class="errsnip" dir="ltr"><span>${lineNo}</span>${highlight(lineCode.trim()) || " "}</pre>` : ""}
+        <code dir="ltr">${esc(msg)}</code>
         <span class="small"><b>بالعربية:</b> <span data-w="exp">${local ? esc(local) : "…"}</span></span>
         ${local ? "" : `<button class="btn plain sm" data-w="ask" style="align-self:flex-start">اشرح لي الخطأ</button>`}
         <span class="ai-note">رسالة الخطأ الأصلية تبقى بالإنجليزية لتتعلّم المصطلح. الشرح والتلميح بدون الحل.</span></div>`;
       onError && onError(msg);
+      const gt = $('[data-w="goto"]', errBox); if (gt) gt.onclick = () => goLine(lineNo);
       const ask = $('[data-w="ask"]', errBox);
       if (ask) ask.onclick = async () => {
         ask.disabled = true; ask.innerHTML = '<span class="spinner"></span>';
@@ -119,12 +172,12 @@ export function mountWorkspace(root, { code = "", onChange, onError, typed = 0, 
       };
   };
   window.addEventListener("message", onMsg);
-  upd();
+  paintAll(); upd();
   $('[data-w="run"]', root).onclick = run;
   if (code) run();
   return {
     get code() { return ed.value; },
-    set code(v) { ed.value = v; run(); },
+    set code(v) { ed.value = v; paintAll(); run(); },
     stats: st, run,
     destroy() { window.removeEventListener("message", onMsg); },
     async runAndCollect() { run(); await new Promise((r) => setTimeout(r, 700)); return { output: st.output, errors: st.errors.join("\n") }; },

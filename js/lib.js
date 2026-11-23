@@ -25,6 +25,9 @@ export function friendly(e) {
   if (/should be different/i.test(m)) return "كلمة المرور الجديدة يجب أن تختلف عن القديمة";
   if (/Auth session missing/i.test(m)) return "انتهت صلاحية الرابط. اطلب رابطًا جديدًا";
   if (/Failed to fetch|NetworkError/i.test(m)) return "تعذّر الاتصال. تحقق من الإنترنت";
+  if (/mime type|invalid_mime/i.test(m)) return "نوع الملف غير مسموح. ارفع ملف PDF فقط";
+  if (/exceeded the maximum|too large|Payload too large/i.test(m)) return "الملف أكبر من الحد المسموح (15 ميجا)";
+  if (/row-level security|permission denied|violates/i.test(m)) return "ليس لديك صلاحية لهذه العملية";
   return m.replace(/^.*?:\s*/, "") || "حدث خطأ غير متوقع";
 }
 
