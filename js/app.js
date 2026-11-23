@@ -377,6 +377,7 @@ route("/t/lecture/:id", async ({ id }) => {
   const { data: mine } = await sb.from("slide_pulse").select("slide").eq("lecture_id", id);
   const lost = new Set((mine || []).map((x) => x.slide));
   let following = !!lec.classes?.live_slide;
+  let wasLive = following;
   const m = shell("t", "/t", `
     <div class="row"><h2 class="grow">${esc(lec.title)}</h2>${lec.classes?.live_slide ? `<span class="chip live"><span class="dot"></span> مباشر</span>` : ""}
       <button class="switch" id="follow" aria-pressed="${following}"><i></i>متابعة شريحة المدرب</button></div>
@@ -407,7 +408,12 @@ route("/t/lecture/:id", async ({ id }) => {
     if (following) { const { data } = await sb.from("classes").select("live_slide").eq("id", lec.class_id).single(); if (data?.live_slide && sl) sl.show(data.live_slide, true); }
   };
   const ch = sb.channel("live-" + lec.class_id).on("postgres_changes", { event: "UPDATE", schema: "public", table: "classes", filter: `id=eq.${lec.class_id}` },
-    (p) => { if (following && p.new.live_slide && sl) sl.show(p.new.live_slide, true); checkPop(p.new); }).subscribe();
+    (p) => {
+      // a session that just started turns «متابعة شريحة المدرب» on by itself
+      if (p.new.live_slide && !wasLive && p.new.live_lecture === id) { following = true; fbtn.setAttribute("aria-pressed", "true"); }
+      wasLive = !!p.new.live_slide;
+      if (following && p.new.live_slide && sl) sl.show(p.new.live_slide, true); checkPop(p.new);
+    }).subscribe();
   onLeave(() => { sb.removeChannel(ch); ws.destroy(); });
 });
 
