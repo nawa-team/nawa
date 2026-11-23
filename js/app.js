@@ -244,8 +244,10 @@ function lecBlock(l, tasks, open = false) {
   return `<details class="lec"${open ? " open" : ""}><summary class="lechead">${ICON.slides}<div class="grow"><b>${esc(l.title)}</b><div class="tiny muted">${ts.length ? `أنجزت ${done} من ${ts.length} تمارين` : "لا توجد تمارين بعد"} · ${ago(l.created_at)}</div></div><span class="fold" aria-hidden="true">⌄</span></summary>
     <div class="list">${ts.map(taskRow).join("")}<a href="#/t/lecture/${l.id}" class="openlec">${ICON.slides}<div class="grow t">فتح المحاضرة (الشرائح والمحرر)</div><span class="tiny">‹</span></a></div></details>`;
 }
-const taskRow = (t) => `<a href="#/t/task/${t.id}"><div class="grow"><div class="t">${esc(t.title)}</div><div class="tiny muted">${esc(t.topic)}${t.slide ? ` · الشريحة ${t.slide}` : ""}${t.target_user ? " · مُرسل لك" : ""}${t.is_extra ? " · إضافي" : ""}</div></div>
-  <span class="chip ${STATUS[t.st][1]}">${STATUS[t.st][0]}</span>${t.sub ? vchip(t.sub.ai_verdict) : ""}</a>`;
+const taskRow = (t) => `<a href="#/t/task/${t.id}"><div class="grow"><div class="t">${esc(t.title)}</div><div class="tiny muted">${esc(t.topic)}${t.slide ? ` · الشريحة ${t.slide}` : ""}${t.target_user ? " · مُرسل لك" : ""}${t.is_extra ? " · إضافي" : ""}${t.st === "done" ? ` · سُلّم ${ago(t.sub.submitted_at)}` : ""}</div></div>
+  ${statusChip(t)}</a>`;
+// one chip only: after submitting, the result is the status
+const statusChip = (t) => t.st === "done" ? (vchip(t.sub.ai_verdict) || `<span class="chip ok">تم التسليم</span>`) : `<span class="chip ${STATUS[t.st][1]}">${STATUS[t.st][0]}</span>`;
 
 route("/t", async () => {
   loading(); await loadMe(); if (!need("trainee")) return;
@@ -291,7 +293,7 @@ route("/t/task/:id", async ({ id }) => {
   const { data: notes } = await sb.from("notes").select("body,created_at").eq("submission_id", sub.id).order("created_at");
   const lec = task.lectures;
   const m = shell("t", "/t/tasks", `
-    <div class="row"><a class="btn plain sm" href="#/t/tasks">→ المحاضرات</a><h2 class="grow">${esc(task.title)}</h2>${sub.submitted_at ? vchip(sub.ai_verdict) : ""}</div>
+    <div class="row"><a class="btn plain sm" href="#/t/tasks">→ المحاضرات</a><h2 class="grow">${esc(task.title)}</h2>${sub.submitted_at ? `<span class="tiny muted">سُلّم ${ago(sub.submitted_at)}</span>${vchip(sub.ai_verdict) || `<span class="chip ok">تم التسليم</span>`}` : ""}</div>
     <div class="ws">
       <section class="pane">
         <div class="card"><span class="chip new" style="align-self:flex-start">${esc(task.topic)}</span><p>${esc(task.prompt)}</p></div>
@@ -710,11 +712,22 @@ route("/m/task/:id", async ({ id }) => {
   rows.sort((a, b) => (b.s?.submitted_at ? 1 : 0) - (a.s?.submitted_at ? 1 : 0));
   shell("m", "/m", `<div class="row"><a class="btn plain sm" href="#/m/class/${t.class_id}">→ الفصل</a><h2 class="grow">${esc(t.title)}</h2></div>
     <div class="card"><span class="chip new" style="align-self:flex-start">${esc(t.topic)}</span><p class="small">${esc(t.prompt)}</p></div>
+    <details class="card" id="edit"><summary><b>تعديل التمرين</b></summary>${taskForm(t, "edit")}
+      <div class="row"><button class="btn grow" id="save">حفظ التعديل</button><button class="btn plain" id="deltask">حذف التمرين</button></div>
+      <span class="tiny muted">التعديل يظهر للمتدربين فورًا. كود البداية الجديد يظهر لمن لم يفتح التمرين بعد.</span></details>
     <div class="list">${rows.length ? rows.map(({ name, s }) => {
       const p = s ? pct(s.typed_chars, s.pasted_chars) : null;
       const inner = `<div class="grow"><div class="t">${esc(name)}</div><div class="tiny muted">${!s ? "لم يفتح التمرين" : s.submitted_at ? `كتابة يدوية ${p ?? "—"}% · وقت الحل ${fmtMin(Math.round((new Date(s.submitted_at) - new Date(s.opened_at)) / 60000))}${s.pasted_chars ? " · يوجد لصق" : ""}` : "قيد الحل الآن"}</div></div>
         ${s?.submitted_at ? vchip(s.ai_verdict) || `<span class="chip ok">تم التسليم</span>` : `<span class="chip">${s ? "فُتح ولم يُسلَّم" : "لم يبدأ"}</span>`}`;
       return s?.submitted_at ? `<a href="#/m/sub/${s.id}">${inner}</a>` : `<div>${inner}</div>`; }).join("") : `<div class="empty">لا يوجد متدربون في الفصل بعد.</div>`}</div>`, "narrow");
+  $("#save").onclick = async () => {
+    const v = readTask($('[data-task="edit"]')); if (!v.topic || !v.title || !v.prompt) return toast("أكمل الموضوع والعنوان والمطلوب");
+    const { error } = await sb.from("tasks").update(v).eq("id", id); toast(error ? friendly(error) : "تم حفظ التعديل"); if (!error) render();
+  };
+  twoTap($("#deltask"), "اضغط مرة ثانية لتأكيد الحذف", async () => {
+    const { error } = await sb.from("tasks").delete().eq("id", id);
+    if (error) return toast(friendly(error), 4000); toast("حُذف التمرين"); go("/m/class/" + t.class_id);
+  });
 });
 
 route("/m/sub/:id", async ({ id }) => {

@@ -14,7 +14,35 @@ const HINTS = [
   [/Infinite loop/, () => "الحلقة لا تتوقف أبدًا، لذلك أوقفناها حتى لا تتجمّد الصفحة. تأكد أن الشرط يصبح false في وقت ما، مثل زيادة المتغيّر أو إنقاصه داخل الحلقة."],
   [/browser hid the details/, () => "حدث خطأ أثناء التشغيل ولم يُظهر المتصفح تفاصيله. راجِع آخر جزء عدّلته في الكود، وتأكد من الأقواس وعلامات التنصيص وأسماء المتغيّرات."],
   [/Invalid or unexpected token/, () => "يوجد حرف غير مفهوم، غالبًا علامة تنصيص مفتوحة ولم تُغلق."],
+  [/Unknown tag <([\w-]+)>(?: \(did you mean <(.+)>\?\))?/, (m) => `الوسم <${m[1]}> غير موجود في HTML${m[2] ? `، هل تقصد <${m[2].replace(/> or </g, "> أو <")}>؟` : "."} المتصفح يتجاهله، لذلك لا يظهر أثره في الصفحة.`],
+  [/Tag <(\w+)> is not closed/, (m) => `فتحت الوسم <${m[1]}> ولم تُغلقه. أضف </${m[1]}> في المكان المناسب، فبعض المتصفحات تُصلحه وحدها لكن هذا خطأ في الكود.`],
+  [/Closing tag <\/(\w+)> has no opening tag/, (m) => `يوجد وسم إغلاق </${m[1]}> بدون وسم فتح قبله. احذفه أو أضف <${m[1]}> قبله.`],
 ];
+// ---------- HTML check: the browser hides HTML mistakes, so we point them out ----------
+const TAGS = new Set("html head body title meta link style script div span p a img ul ol li table thead tbody tfoot tr td th caption h1 h2 h3 h4 h5 h6 br hr b i u strong em small mark sub sup pre code blockquote form input button label select option textarea fieldset legend nav header footer main section article aside figure figcaption video audio source iframe canvas svg path circle rect line g text center font marquee abbr cite dl dt dd details summary progress meter time data template noscript base col colgroup wbr q s del ins kbd samp var bdi bdo ruby rt rp picture track map area object embed param output datalist optgroup dialog address hgroup search slot".split(" "));
+const VOID = new Set("area base br col embed hr img input link meta source track wbr param".split(" "));
+const OPTIONAL = new Set(["html", "head", "body"]);
+// close tag names (one letter different), same first letter first: <hl> → <hr> / <h1>
+const near = (t) => [...TAGS].filter((k) => k.length === t.length && [...k].filter((c, i) => c !== t[i]).length === 1)
+  .sort((a, b) => (b[0] === t[0]) - (a[0] === t[0]) || (b === "hr") - (a === "hr")).slice(0, 2).join("> or <");
+export function htmlIssues(code) {
+  // blank out comments, scripts and styles (keeping line breaks) so only real tags are checked
+  const blank = (m) => m.replace(/[^\n]/g, " ");
+  const src = code.replace(/<!--[\s\S]*?(-->|$)/g, blank).replace(/(<(script|style)\b[^>]*>)([\s\S]*?)(<\/\2>)/gi, (m, a, n, b, c) => a + blank(b) + c);
+  const out = [], stack = [], re = /<(\/?)([a-zA-Z][\w-]*)[^>]*?(\/?)>/g;
+  const lineAt = (i) => src.slice(0, i).split("\n").length;
+  for (let m; (m = re.exec(src)); ) {
+    const name = m[2].toLowerCase(), line = lineAt(m.index);
+    if (!TAGS.has(name) && !name.includes("-")) { const n = near(name); out.push({ m: `Unknown tag <${name}>` + (n ? ` (did you mean <${n}>?)` : ""), line }); continue; }
+    if (VOID.has(name) || m[3]) continue;
+    if (!m[1]) { stack.push({ name, line }); continue; }
+    const k = stack.map((x) => x.name).lastIndexOf(name);
+    if (k < 0) { out.push({ m: `Closing tag </${name}> has no opening tag`, line }); continue; }
+    stack.splice(k).slice(1).forEach((x) => out.push({ m: `Tag <${x.name}> is not closed`, line: x.line }));
+  }
+  stack.filter((x) => !OPTIONAL.has(x.name)).forEach((x) => out.push({ m: `Tag <${x.name}> is not closed`, line: x.line }));
+  return out.sort((a, b) => a.line - b.line).slice(0, 3);
+}
 export function localHint(msg) {
   for (const [re, fn] of HINTS) { const m = msg.match(re); if (m) return fn(m); }
   return null;
@@ -137,6 +165,7 @@ export function mountWorkspace(root, { code = "", onChange, onError, typed = 0, 
     st.offset = head.split("\n").length - 1 + (isJs ? 1 : 0); // so error lines match the editor
     st.syntax = syntaxCheck(ed.value, isJs);
     if (st.syntax) showErr(st.syntax.m, st.syntax.line);
+    if (!isJs) htmlIssues(ed.value).forEach((x) => showErr(x.m, x.line, true));
     pv.srcdoc = head + (isJs ? "<script>\n" + protect(ed.value, true) + "\n<\/script>" : protect(ed.value, false)) + "</body>";
   };
   const onMsg = (e) => {
@@ -148,27 +177,29 @@ export function mountWorkspace(root, { code = "", onChange, onError, typed = 0, 
       showErr(msg, e.data.l ? Math.max(1, e.data.l - (st.offset || 0)) : 0);
     }
   };
-  const showErr = (msg, lineNo) => {
+  const showErr = (msg, lineNo, warn = false) => {
       if (/^Script error\.?$/i.test(msg)) msg = "Error: the browser hid the details of this error";
       st.errors.push(msg);
       const lineCode = lineNo ? ed.value.split("\n")[lineNo - 1] || "" : "";
       const local = localHint(msg);
       if (lineNo && !errLine) { errLine = lineNo; paintAll(); }
-      errBox.innerHTML = `<div class="err">
-        <div class="row"><b class="grow">${lineNo ? `خطأ في السطر ${lineNo}` : "خطأ أثناء التشغيل"}</b>${lineNo ? `<button class="btn plain sm" data-w="goto">اذهب للسطر</button>` : ""}</div>
+      if (errBox.children.length >= 4) return;
+      errBox.insertAdjacentHTML("beforeend", `<div class="err${warn ? " warn" : ""}">
+        <div class="row"><b class="grow">${lineNo ? `${warn ? "خطأ في HTML" : "خطأ"} في السطر ${lineNo}` : "خطأ أثناء التشغيل"}</b>${lineNo ? `<button class="btn plain sm" data-w="goto">اذهب للسطر</button>` : ""}</div>
         ${lineNo ? `<pre class="errsnip" dir="ltr"><span>${lineNo}</span>${highlight(lineCode.trim()) || " "}</pre>` : ""}
         <code dir="ltr">${esc(msg)}</code>
         <span class="small"><b>بالعربية:</b> <span data-w="exp">${local ? esc(local) : "…"}</span></span>
         ${local ? "" : `<button class="btn plain sm" data-w="ask" style="align-self:flex-start">اشرح لي الخطأ</button>`}
-        <span class="ai-note">رسالة الخطأ الأصلية تبقى بالإنجليزية لتتعلّم المصطلح. الشرح والتلميح بدون الحل.</span></div>`;
+        <span class="ai-note">رسالة الخطأ الأصلية تبقى بالإنجليزية لتتعلّم المصطلح. الشرح والتلميح بدون الحل.</span></div>`);
+      const card = errBox.lastElementChild;
       onError && onError(msg);
-      const gt = $('[data-w="goto"]', errBox); if (gt) gt.onclick = () => goLine(lineNo);
-      const ask = $('[data-w="ask"]', errBox);
+      const gt = $('[data-w="goto"]', card); if (gt) gt.onclick = () => goLine(lineNo);
+      const ask = $('[data-w="ask"]', card);
       if (ask) ask.onclick = async () => {
         ask.disabled = true; ask.innerHTML = '<span class="spinner"></span>';
         try { const r = await ai("hint", { message: msg, line_code: lineCode });
-          $('[data-w="exp"]', errBox).textContent = r.explain; ask.outerHTML = `<span class="small"><b>تلميح:</b> ${esc(r.hint)}</span><span class="ai-note">شرح من الذكاء الاصطناعي، راجِعه.</span>`;
-        } catch (er) { ask.disabled = false; ask.textContent = "اشرح لي الخطأ"; $('[data-w="exp"]', errBox).textContent = er.message; }
+          $('[data-w="exp"]', card).textContent = r.explain; ask.outerHTML = `<span class="small"><b>تلميح:</b> ${esc(r.hint)}</span><span class="ai-note">شرح من الذكاء الاصطناعي، راجِعه.</span>`;
+        } catch (er) { ask.disabled = false; ask.textContent = "اشرح لي الخطأ"; $('[data-w="exp"]', card).textContent = er.message; }
       };
   };
   window.addEventListener("message", onMsg);

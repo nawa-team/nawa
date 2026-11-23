@@ -171,3 +171,4 @@ details.lec>summary{list-style:none;cursor:pointer} details.lec>summary::-webkit
 details.lec[open] .fold{transform:rotate(180deg)}
 details.lec:not([open]) .list{display:none}
 .lec a.openlec{color:var(--gold-ink);font-weight:600}
+[data-w="err"]{display:flex;flex-direction:column;gap:8px}
