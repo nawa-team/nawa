@@ -33,7 +33,10 @@ function need(role) {
   if (role && me.role !== role) { go(me.role === "trainer" ? "/m" : "/t"); return false; }
   return true;
 }
-const STATUS = { new: ["جديد", "new"], open: ["قيد الحل", ""], done: ["تم التسليم", "ok"] };
+// a live session ends by itself if the trainer forgot to end it (no slide change for 3 hours)
+const LIVE_MS = 3 * 3600 * 1000;
+const fixLive = (c) => { if (c && c.live_slide && !(c.live_at && Date.now() - new Date(c.live_at) < LIVE_MS)) c.live_slide = null; return c; };
+const STATUS = { new: ["جديد", "new"], open: ["لم يُسلَّم", ""], done: ["تم التسليم", "ok"] };
 const VERDICT = { correct: ["صحيح", "ok"], partial: ["قريب", "new"], wrong: ["يحتاج مراجعة", "bad"] };
 const vchip = (v) => (v ? `<span class="chip ${VERDICT[v][1]}">${VERDICT[v][0]}</span>` : "");
 const pct = (a, b) => (a + b ? Math.round((a / (a + b)) * 100) : null);
@@ -143,8 +146,8 @@ route("/signup", () => {
 
 // ---------- trainee ----------
 async function myClasses() {
-  const { data } = await sb.from("members").select("class_id, classes(id,name,code,live_slide,trainer_id)").eq("user_id", me.id);
-  return (data || []).map((r) => r.classes).filter(Boolean);
+  const { data } = await sb.from("members").select("class_id, classes(id,name,code,live_slide,live_at,trainer_id)").eq("user_id", me.id);
+  return (data || []).map((r) => fixLive(r.classes)).filter(Boolean);
 }
 function currentClass(list) {
   const saved = localStorage.getItem("nawa.class");
@@ -284,7 +287,8 @@ async function mountSlides(root, path, start = 1, { onPage, follow } = {}) {
 
 route("/t/lecture/:id", async ({ id }) => {
   loading(); await loadMe(); if (!need("trainee")) return;
-  const { data: lec } = await sb.from("lectures").select("*, classes(id,live_slide)").eq("id", id).single();
+  const { data: lec } = await sb.from("lectures").select("*, classes(id,live_slide,live_at)").eq("id", id).single();
+  fixLive(lec?.classes);
   if (!lec) return shell("t", "/t", `<div class="card empty">المحاضرة غير متاحة.</div>`);
   const { data: tasks } = await sb.from("tasks").select("id,title,topic").eq("lecture_id", id);
   let following = !!lec.classes?.live_slide;
@@ -353,7 +357,8 @@ route("/m/me", meView("m"));
 // ---------- trainer ----------
 route("/m", async () => {
   loading(); await loadMe(); if (!need("trainer")) return;
-  const { data: classes } = await sb.from("classes").select("id,name,code,live_slide,created_at").eq("trainer_id", me.id).order("created_at");
+  const { data: classes } = await sb.from("classes").select("id,name,code,live_slide,live_at,created_at").eq("trainer_id", me.id).order("created_at");
+  (classes || []).forEach(fixLive);
   const m = shell("m", "/m", `<h1>فصولي</h1>
     <div class="list">${classes?.length ? classes.map((c) => `<a href="#/m/class/${c.id}"><div class="grow"><div class="t">${esc(c.name)}</div><div class="tiny muted">الرمز <span class="mono">${c.code}</span></div></div>${c.live_slide ? `<span class="chip live"><span class="dot"></span> مباشر</span>` : ""}</a>`).join("") : `<div class="empty">أنشئ أول فصل.</div>`}</div>
     <form class="card" id="f"><h3>فصل جديد</h3><div class="row"><input class="f grow" name="name" required maxlength="80" placeholder="مثال: برمجة الويب 1 · شعبة 204"><button class="btn">إنشاء</button></div></form>`, "narrow");
@@ -372,6 +377,7 @@ route("/m/class/:id", async ({ id }) => {
     sb.from("members").select("user_id", { count: "exact", head: true }).eq("class_id", id),
   ]);
   if (!c) return shell("m", "/m", `<div class="card empty">الفصل غير موجود.</div>`);
+  fixLive(c);
   const m = shell("m", "/m", `
     <div class="row"><a class="btn plain sm" href="#/m">→ فصولي</a><h1 class="grow">${esc(c.name)}</h1>
       ${c.live_slide ? `<span class="chip live"><span class="dot"></span> الجلسة مباشرة</span><button class="btn plain sm" id="end">إنهاء الجلسة</button>` : ""}</div>
@@ -433,7 +439,8 @@ function bindTaskForm(m, classId, lectureId) {
 
 route("/m/lecture/:id", async ({ id }) => {
   loading(); await loadMe(); if (!need("trainer")) return;
-  const { data: lec } = await sb.from("lectures").select("*, classes(id,name,live_slide)").eq("id", id).single();
+  const { data: lec } = await sb.from("lectures").select("*, classes(id,name,live_slide,live_at)").eq("id", id).single();
+  fixLive(lec?.classes);
   if (!lec) return shell("m", "/m", `<div class="card empty">المحاضرة غير موجودة.</div>`);
   const { data: members } = await sb.from("members").select("user_id, profiles(full_name)").eq("class_id", lec.class_id);
   const live = !!lec.classes.live_slide;
@@ -515,7 +522,7 @@ route("/m/task/:id", async ({ id }) => {
     <div class="list">${rows.length ? rows.map(({ name, s }) => {
       const p = s ? pct(s.typed_chars, s.pasted_chars) : null;
       const inner = `<div class="grow"><div class="t">${esc(name)}</div><div class="tiny muted">${!s ? "لم يفتح التمرين" : s.submitted_at ? `كتابة يدوية ${p ?? "—"}% · وقت الحل ${fmtMin(Math.round((new Date(s.submitted_at) - new Date(s.opened_at)) / 60000))}${s.pasted_chars ? " · يوجد لصق" : ""}` : "قيد الحل الآن"}</div></div>
-        ${s?.submitted_at ? vchip(s.ai_verdict) || `<span class="chip ok">تم التسليم</span>` : `<span class="chip">${s ? "قيد الحل" : "لم يبدأ"}</span>`}`;
+        ${s?.submitted_at ? vchip(s.ai_verdict) || `<span class="chip ok">تم التسليم</span>` : `<span class="chip">${s ? "فُتح ولم يُسلَّم" : "لم يبدأ"}</span>`}`;
       return s?.submitted_at ? `<a href="#/m/sub/${s.id}">${inner}</a>` : `<div>${inner}</div>`; }).join("") : `<div class="empty">لا يوجد متدربون في الفصل بعد.</div>`}</div>`, "narrow");
 });
 
