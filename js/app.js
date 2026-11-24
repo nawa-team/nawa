@@ -35,8 +35,12 @@ function shell(role, active, html, cls = "") {
       <nav>${nav.map(([h, l]) => `<a href="#${h}" ${h === active ? 'aria-current="page"' : ""}>${l}</a>`).join("")}</nav></header>
     <main class="${cls}">${html}</main>
     <nav class="tabs">${nav.map(([h, l, i]) => `<a href="#${h}" ${h === active ? 'aria-current="page"' : ""}>${ICON[i]}${l}</a>`).join("")}</nav>`;
+  tabsH();
   return $("main", app);
 }
+// real height of the bottom tab bar on this device, so sticky buttons and page ends never hide behind it
+function tabsH() { const t = $(".tabs", app); if (t && t.offsetHeight) document.documentElement.style.setProperty("--tabsh", t.offsetHeight + "px"); }
+addEventListener("resize", tabsH);
 const loading = () => (app.innerHTML = `${themeBtn("float")}<main class="narrow"><div class="empty"><span class="spinner"></span></div></main>`);
 function need(role) {
   if (!me) { go("/login"); return false; }

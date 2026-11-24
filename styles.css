@@ -181,3 +181,5 @@ details.card>summary{cursor:pointer} details.card:not([open]){padding-top:12px;p
 /* the send button stays in view while the trainer scrolls through long drafts */
 .sendfix{position:sticky;bottom:10px;z-index:5;width:100%;padding:14px;font-size:16px;box-shadow:0 6px 20px #0004}
 @media (max-width:720px){.sendfix{bottom:calc(var(--tabsh, 76px) + 10px)}}
+/* room at the end of every page so nothing hides behind the bottom tab bar */
+@media (max-width:720px){main,main.wide{padding-bottom:calc(var(--tabsh, 80px) + 48px + env(safe-area-inset-bottom))}}
