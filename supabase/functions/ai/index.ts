@@ -116,8 +116,9 @@ Deno.serve(async (req) => {
       const { data: task } = await userClient.from("tasks").select("title,prompt,expected,topic").eq("id", sub.task_id).single();
       const output = String(body.output_text ?? "").slice(0, 3000);
       const errors = String(body.errors ?? "").slice(0, 600);
-      const out = await gemini(BASE + `\nقيّم حل المتدرب حسب الناتج والمفهوم المطلوب. اقبل أي طريقة صحيحة.
-correct = الناتج صحيح والمفهوم مستخدم. partial = قريب لكن ينقصه شيء. wrong = لا يحقق المطلوب.
+      const out = await gemini(BASE + `\nقيّم حل المتدرب حسب الناتج والمفهوم المطلوب في هذا التمرين. اقبل أي طريقة صحيحة تستخدم المفهوم المطلوب.
+إذا كان الناتج صحيحًا لكن الحل لم يستخدم المفهوم المطلوب، أو استخدم أسلوبًا أعلى من مستوى التمرين لم يطلبه، فالتقييم partial، واذكر في الملاحظة أن الحل يعمل لكنه بطريقة مختلفة عن المطلوب وأن المدرب سيراجعه.
+correct = الناتج صحيح والمفهوم المطلوب مستخدم. partial = قريب لكن ينقصه شيء، أو بطريقة غير المطلوبة. wrong = لا يحقق المطلوب.
 الملاحظة: سطران كحد أقصى، تمدح الصحيح وتلمّح للناقص بدون كتابة الحل.`,
         `التمرين: ${task?.title}\nالمطلوب: ${task?.prompt}\nالمفهوم: ${task?.topic}\nالمتوقع: ${task?.expected}\n\nكود المتدرب:\n${sub.code.slice(0, 8000)}\n\nما ظهر في المعاينة:\n${output}\n\nأخطاء التشغيل:\n${errors || "لا يوجد"}`,
         S({ verdict: { type: "STRING", enum: ["correct", "partial", "wrong"] }, feedback: STR }));
