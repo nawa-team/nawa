@@ -1,6 +1,7 @@
 import { sb, START_HASH, $, $$, esc, toast, friendly, ai, fmtMin, ago, LOGO, ICON, route, go, render, onLeave } from "./lib.js";
 import { mountWorkspace } from "./workspace.js";
 import { openPdf, renderPage, extractText } from "./pdf.js";
+import { heatmap } from "./heat.js";
 
 const app = $("#app");
 // light / dark: follows the device until the person picks one
@@ -325,11 +326,10 @@ route("/t/task/:id", async ({ id }) => {
       ${lec?.file_path ? `<div class="card ta-s"><div class="row"><b class="grow small">${task.slide ? `التمرين من الشريحة ${task.slide} · ` : ""}${esc(lec.title)}</b><span class="tiny muted" id="pg"></span></div><div class="slidebox"><canvas id="cv"></canvas></div>
         <div class="slidenav"><button class="btn plain sm" id="prev">›</button><span class="grow"></span><button class="btn plain sm" id="zoom">⤢ تكبير</button><button class="btn plain sm" id="next">‹</button></div></div>` : ""}
     </div>`, "wide");
-  const ws = mountWorkspace($("#ws", m), { code: sub.code || task.starter_code || "", typed: sub.typed_chars || 0, pasted: sub.pasted_chars || 0 });
-  // log errors for the trainer's "common errors" (message only, max once per message)
+  // log every error the trainee sees (HTML check, syntax check and run time) for the trainer's heat map: message only, once per message
   const seen = new Set();
   const logErr = (msg) => { if (seen.has(msg)) return; seen.add(msg); sb.from("error_events").insert({ task_id: id, message: msg.slice(0, 300) }).then(() => {}); };
-  window.addEventListener("message", (e) => { if (e.data?.nawa === "err") logErr(e.data.m); });
+  const ws = mountWorkspace($("#ws", m), { code: sub.code || task.starter_code || "", typed: sub.typed_chars || 0, pasted: sub.pasted_chars || 0, onError: logErr });
   // autosave draft
   let last = ws.code;
   const timer = setInterval(() => {
@@ -592,7 +592,7 @@ route("/m/lecture/:id", async ({ id }) => {
   if (!lec) return shell("m", "/m", `<div class="card empty">المحاضرة غير موجودة.</div>`);
   const { data: members } = await sb.from("members").select("user_id, profiles(full_name)").eq("class_id", lec.class_id);
   const live = !!lec.classes.live_slide && (!lec.classes.live_lecture || lec.classes.live_lecture === id);
-  const { data: ltasks } = await sb.from("tasks").select("id,title,slide").eq("lecture_id", id).order("slide", { nullsFirst: false });
+  const { data: ltasks } = await sb.from("tasks").select("id,title,slide,created_at").eq("lecture_id", id).order("slide", { nullsFirst: false }).order("created_at");
   const m = shell("m", "/m", `
     <div class="row"><a class="btn plain sm" href="#/m/class/${lec.class_id}">→ ${esc(lec.classes.name)}</a><h2 class="grow">${esc(lec.title)}</h2>
       <button class="btn ${live ? "plain" : "live"} sm" id="live">${live ? "إنهاء الجلسة" : "بدء الجلسة المباشرة"}</button></div>
@@ -604,6 +604,8 @@ route("/m/lecture/:id", async ({ id }) => {
         <div class="card"><div class="row"><h3 class="grow">نبض الشريحة</h3><span class="tiny muted">يتحدّث كل بضع ثوانٍ</span></div>
           <p class="tiny muted">عدد المتدربين الذين ضغطوا «لم أفهم» على كل شريحة. لا تظهر الأسماء.</p><div class="btns" id="pulses"><span class="small muted">لا أحد حتى الآن.</span></div>
           <div id="simp"></div></div>
+        <div class="card"><div class="row"><h3 class="grow">خريطة الأخطاء الحرارية</h3><span class="tiny muted">تتحدّث كل بضع ثوانٍ</span></div>
+          <p class="tiny muted">أين يتعثر الفصل في تمارين هذه المحاضرة، لتتوقف وتشرح قبل أن تكمل.</p><div id="heat"><span class="spinner"></span></div></div>
         <div class="card"><h3>تمارين الشرائح</h3><p class="tiny muted">اربط التمرين برقم شريحة، فيظهر للمتدربين لحظة وصولك لها في الجلسة المباشرة.</p>
           ${ltasks?.length ? ltasks.map((t) => `<div class="row small"><a class="grow" href="#/m/task/${t.id}">${esc(t.title)}</a><label class="row tiny">الشريحة<input class="f" type="number" min="1" max="999" data-slide="${t.id}" value="${t.slide ?? ""}" style="width:76px"></label></div>`).join("") : `<p class="small muted">لا توجد تمارين لهذه المحاضرة بعد.</p>`}</div>
         <details class="card"><summary><b>إدارة المحاضرة</b></summary>
@@ -646,7 +648,19 @@ route("/m/lecture/:id", async ({ id }) => {
     $$("[data-go]", m).forEach((b) => (b.onclick = () => sl && sl.show(+b.dataset.go)));
     if (sl) paintHere(sl.page);
   };
-  loadPulse(); const pt = setInterval(loadPulse, 6000); onLeave(() => clearInterval(pt));
+  const tids = (ltasks || []).map((t) => t.id), nTr = (members || []).length;
+  const loadHeat = async () => {
+    if (!tids.length) return ($("#heat", m).innerHTML = heatmap([], [], nTr));
+    const [{ data: errs }, { data: subs }] = await Promise.all([
+      sb.from("error_events").select("task_id,user_id,message").in("task_id", tids).limit(5000),
+      sb.from("submissions").select("task_id").in("task_id", tids).not("submitted_at", "is", null),
+    ]);
+    if (!errs) return;
+    const done = {}; for (const x of subs || []) done[x.task_id] = (done[x.task_id] || 0) + 1;
+    const box = $("#heat", m); if (box) box.innerHTML = heatmap(ltasks.map((t) => ({ ...t, done: done[t.id] || 0 })), errs, nTr);
+  };
+  loadPulse(); loadHeat();
+  const pt = setInterval(() => { loadPulse(); loadHeat(); }, 6000); onLeave(() => clearInterval(pt));
   const simplify = async (n) => {
     const box = $("#simp", m); box.innerHTML = `<p class="small"><span class="spinner"></span> يجهّز شرحًا أبسط للشريحة ${n}…</p>`;
     try {
@@ -800,7 +814,7 @@ route("/m/class/:id/dash", async ({ id }) => {
   const [{ data: c }, { data: rows, error }, { data: tasks }] = await Promise.all([
     sb.from("classes").select("name").eq("id", id).single(),
     sb.rpc("class_metrics", { p_class: id }),
-    sb.from("tasks").select("id,topic").eq("class_id", id),
+    sb.from("tasks").select("id,topic,title,created_at,submissions(submitted_at)").eq("class_id", id).order("created_at"),
   ]);
   const ids = (tasks || []).map((t) => t.id);
   const { data: errs } = ids.length ? await sb.from("error_events").select("message,user_id,task_id").in("task_id", ids).limit(2000) : { data: [] };
@@ -820,6 +834,8 @@ route("/m/class/:id/dash", async ({ id }) => {
       <div class="kpi"><b>${fmtMin(avg(R.map((r) => r.avg_minutes)))}</b><span>متوسط وقت إنجاز المهمة</span></div>
       <div class="kpi"><b>${totalT ? Math.round((doneT / totalT) * 100) : "—"}%</b><span>التمارين المسلّمة</span></div>
     </div>
+    <div class="card"><h3>خريطة الأخطاء الحرارية</h3><p class="tiny muted">كل عمود تمرين، وكل صف نوع خطأ. تظهر أيضًا بجانب الشرائح أثناء الجلسة المباشرة.</p>
+      ${heatmap((tasks || []).map((t) => ({ id: t.id, title: t.title, done: (t.submissions || []).filter((x) => x.submitted_at).length })), errs, R.length)}</div>
     <div class="card"><h3>الأخطاء الشائعة</h3>${common.length ? common.map(([k, n]) => `<div class="row small"><code class="grow" style="text-align:end">${esc(k)}</code><span class="chip bad">${n} متدرب</span></div>`).join("") + `<p class="tiny muted">إذا تكرر الخطأ عند كثيرين، اشرحه للجميع من الشريحة.</p>` : `<p class="small muted">لا توجد أخطاء مسجّلة بعد.</p>`}</div>
     <div class="card scroll-x"><table class="t"><thead><tr><th>المتدرب</th><th>المسلّم</th><th>الكتابة اليدوية</th><th>وقت الحل</th><th>أثناء المحاضرة</th><th></th></tr></thead><tbody>
       ${R.map((r) => `<tr><td><b>${esc(r.full_name || "متدرب")}</b></td><td>${r.tasks_done}/${r.tasks_total}</td><td ${r.typed_pct != null && r.typed_pct < 50 ? 'style="color:var(--bad);font-weight:700"' : ""}>${r.typed_pct ?? "—"}%</td><td>${fmtMin(r.avg_minutes)}</td><td>${r.in_session_pct ?? "—"}%</td><td><button class="btn plain sm" data-rm="${r.user_id}">إزالة</button></td></tr>`).join("") || `<tr><td colspan="5" class="muted">لا يوجد متدربون بعد.</td></tr>`}

@@ -190,3 +190,15 @@ details.card>summary{cursor:pointer} details.card:not([open]){padding-top:12px;p
 .clspick{overflow-x:auto}.clspick button{white-space:nowrap}
 #topics .btn[aria-pressed="true"]{background:var(--gold);color:var(--on-gold)}
 #topics{display:flex;flex-direction:column;gap:10px} #topics .grouphead{margin-top:0}
+/* heat map of mistakes: rows = kind of mistake, columns = exercises */
+.heatalert{background:var(--live-soft);color:var(--live);border:1px solid color-mix(in srgb,var(--live) 35%,transparent);border-radius:12px;padding:10px 14px;font-size:14px;line-height:1.7}
+.heatalert::before{content:"⚠ ";font-weight:700}
+.heatinfo{background:var(--sunk);border-radius:12px;padding:10px 14px;font-size:13.5px;color:var(--muted)}
+.heatinfo.ok{background:var(--ok-soft);color:var(--ok)}
+table.heat{border-collapse:separate;border-spacing:5px;font-size:13.5px;min-width:100%}
+table.heat th{font-weight:600;color:var(--muted);font-size:12.5px;text-align:center;vertical-align:bottom;min-width:92px;padding:2px 4px}
+table.heat th small{display:block;font-weight:400;font-size:11px;white-space:nowrap}
+table.heat th:first-child,table.heat td.kind{text-align:start;min-width:128px;box-shadow:-6px 0 6px -6px #0003;position:sticky;inset-inline-start:0;background:var(--surface);z-index:1}
+table.heat td.kind{font-weight:600;font-size:13px;line-height:1.5;padding-inline-end:8px}
+.hc{display:block;border-radius:9px;padding:9px 6px;text-align:center;font-weight:700;font-variant-numeric:tabular-nums}
+.hc.zero{background:var(--sunk);color:var(--muted);font-weight:500}
