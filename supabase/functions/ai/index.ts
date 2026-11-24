@@ -110,8 +110,10 @@ Deno.serve(async (req) => {
     if (action === "tasks") {
       const { data: isT } = await userClient.from("classes").select("id").eq("id", body.class_id).eq("trainer_id", user.id).maybeSingle();
       if (!isT) return json({ error: "للمدرب فقط" }, 403);
-      const topics = (body.topics ?? []).slice(0, 8).map((t: { topic: string; summary?: string }) => `- ${t.topic}: ${t.summary ?? ""}`).join("\n");
-      const out = await cached(admin, BASE + "\nصمّم تمارين قصيرة تُحل في المتصفح بـ HTML و JavaScript وتظهر نتيجتها في المعاينة (داخل الصفحة أو عبر console.log). كود البداية هيكل فارغ فقط (DOCTYPE و html و head و body) بلا أي تعليق، فالمتدرب يحدد بنفسه أين يكتب.",
+      // each topic carries the text of its slide, so the exercise asks for the slide's own example, not a generic one
+      const topics = (body.topics ?? []).slice(0, 8).map((t: { topic: string; summary?: string; slide_text?: string }) =>
+        `- ${t.topic}: ${t.summary ?? ""}` + (t.slide_text ? `\n  نص الشريحة: ${String(t.slide_text).slice(0, 900)}` : "")).join("\n");
+      const out = await cached(admin, BASE + "\nصمّم تمارين قصيرة تُحل في المتصفح بـ HTML و JavaScript وتظهر نتيجتها في المعاينة (داخل الصفحة أو عبر console.log). كود البداية هيكل فارغ فقط (DOCTYPE و html و head و body) بلا أي تعليق، فالمتدرب يحدد بنفسه أين يكتب.\nإذا كان في نص الشريحة مثال أو ناتج محدد (مثل شكل من النجوم، أو قائمة أو جدول بعينه)، فالتمرين يطلب تطبيق مثال الشريحة نفسه: اكتب الناتج المطلوب بدقة في نص المطلوب وفي المتوقع، ليُقيَّم الحل على مثال الشريحة لا على أي ناتج آخر. ولا تكتب الكود.",
         `المواضيع:\n${topics}\n\nلكل موضوع تمرين واحد: عنوان قصير، ونص المطلوب (سطرين)، والناتج المتوقع والمفهوم المطلوب (للتقييم فقط)، وكود بداية يكون هيكلًا فارغًا فقط (ليس فيه أي جزء من الحل).`,
         S({ tasks: ARR(S({ topic: STR, title: STR, prompt: STR, expected: STR, starter_code: STR })) }));
       // pin each exercise to the slide its topic came from («تمرين الشريحة»)
@@ -132,6 +134,7 @@ Deno.serve(async (req) => {
       const errors = String(body.errors ?? "").slice(0, 600);
       const out = await cached(admin, BASE + `\nقيّم حل المتدرب حسب الناتج والمفهوم المطلوب في هذا التمرين. اقبل أي طريقة صحيحة تستخدم المفهوم المطلوب.
 إذا كان الناتج صحيحًا لكن الحل لم يستخدم المفهوم المطلوب، أو استخدم أسلوبًا أعلى من مستوى التمرين لم يطلبه، فالتقييم partial، واذكر في الملاحظة أن الحل يعمل لكنه بطريقة مختلفة عن المطلوب وأن المدرب سيراجعه.
+إذا حدّد المطلوب أو المتوقع ناتجًا بعينه (مثل شكل من النجوم أو نص محدد) وكان ناتج المتدرب شيئًا آخر، فلا يكون التقييم correct حتى لو استخدم المفهوم: اجعله partial، واذكر أن الناتج يختلف عن المطلوب.
 correct = الناتج صحيح والمفهوم المطلوب مستخدم. partial = قريب لكن ينقصه شيء، أو بطريقة غير المطلوبة. wrong = لا يحقق المطلوب.
 الملاحظة: سطران كحد أقصى، تمدح الصحيح وتلمّح للناقص بدون كتابة الحل.`,
         `التمرين: ${task?.title}\nالمطلوب: ${task?.prompt}\nالمفهوم: ${task?.topic}\nالمتوقع: ${task?.expected}\n\nكود المتدرب:\n${sub.code.slice(0, 8000)}\n\nما ظهر في المعاينة:\n${output}\n\nأخطاء التشغيل:\n${errors || "لا يوجد"}`,

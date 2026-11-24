@@ -713,10 +713,14 @@ route("/m/lecture/:id", async ({ id }) => {
   $("#extract", m).onclick = doExtract;
   if (location.hash.includes("extract=1") && !lec.topics?.length) { history.replaceState(null, "", "#/m/lecture/" + id); doExtract(); }
   $("#gen", m).onclick = async (e) => {
-    const chosen = $$("#topics input:checked", m).map((x) => lec.topics[+x.value]);
+    let chosen = $$("#topics input:checked", m).map((x) => lec.topics[+x.value]);
     if (!chosen.length) return toast("اختر موضوعًا واحدًا على الأقل");
     const b = e.target; b.disabled = true; b.innerHTML = '<span class="spinner"></span> يجهّز التمارين';
     try {
+      // send each topic's slide text, so the exercise follows the slide's own example
+      await slReady;
+      const slideText = async (n) => { try { return (await (await sl.doc.getPage(n)).getTextContent()).items.map((x) => x.str + (x.hasEOL ? "\n" : " ")).join("").slice(0, 900); } catch { return ""; } };
+      if (sl) chosen = await Promise.all(chosen.map(async (c) => (Number.isInteger(c.page) ? { ...c, slide_text: await slideText(c.page) } : c)));
       const { tasks } = await ai("tasks", { class_id: lec.class_id, topics: chosen });
       tasks.forEach((t, i) => { if (!t.slide) t.slide = (chosen.find((c) => c.topic === t.topic) || chosen[i])?.page ?? null; });
       $("#drafts", m).innerHTML = `<div class="card"><h3>مسودات التمارين</h3><p class="small muted">راجع وعدّل، ثم اختر لمن ترسل.</p>
