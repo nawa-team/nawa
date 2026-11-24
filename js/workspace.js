@@ -16,6 +16,7 @@ const HINTS = [
   [/Invalid or unexpected token/, () => "يوجد حرف غير مفهوم، غالبًا علامة تنصيص مفتوحة ولم تُغلق."],
   [/Unknown tag <([\w-]+)>(?: \(did you mean <(.+)>\?\))?/, (m) => `وسم غير موجود${m[2] ? `، هل تقصد <${m[2].replace(/> or </g, "> أو <")}>؟` : "."}`],
   [/Tag <(\w+)> is not closed/, (m) => `ينقصه </${m[1]}> لإغلاقه.`],
+  [/Duplicate <(!DOCTYPE|\w+)>/, (m) => `يُكتب <${m[1]}> مرة واحدة فقط في الصفحة. احذف المكرر.`],
   [/Closing tag <\/(\w+)> has no opening tag/, (m) => `وسم إغلاق بدون فتح. احذفه أو أضف <${m[1]}> قبله.`],
 ];
 // ---------- HTML check: the browser hides HTML mistakes, so we point them out ----------
@@ -37,6 +38,12 @@ export function htmlIssues(code) {
   const src = code.replace(/<!--[\s\S]*?(-->|$)/g, blank).replace(/(<(script|style)\b[^>]*>)([\s\S]*?)(<\/\2>)/gi, (m, a, n, b, c) => a + blank(b) + c);
   const out = [], stack = [], re = /<(\/?)([a-zA-Z][\w-]*)[^>]*?(\/?)>/g;
   const lineAt = (i) => src.slice(0, i).split("\n").length;
+  // the page skeleton is written once: a second <!DOCTYPE>, <html>, <head> or <body> usually means code was pasted inside it
+  const seen = new Set();
+  for (const m of src.matchAll(/<(!doctype|html|head|body)\b[^>]*>/gi)) {
+    const n = m[1].toLowerCase(), shown = n === "!doctype" ? "!DOCTYPE" : n;
+    if (seen.has(n)) out.push({ m: `Duplicate <${shown}> tag`, line: lineAt(m.index) }); else seen.add(n);
+  }
   for (let m; (m = re.exec(src)); ) {
     const name = m[2].toLowerCase(), line = lineAt(m.index);
     if (!TAGS.has(name) && !name.includes("-")) { const n = near(name); out.push({ m: `Unknown tag <${name}>` + (n ? ` (did you mean <${n}>?)` : ""), line }); continue; }
@@ -154,14 +161,20 @@ export function mountWorkspace(root, { code = "", onChange, onError, typed = 0, 
     $('[data-w="typed"]', root).textContent = "الكتابة اليدوية: " + (t ? Math.round((st.typed / t) * 100) + "%" : "—");
     $('[data-w="paste"]', root).hidden = !st.pasted;
   };
-  ed.addEventListener("beforeinput", (e) => {
-    if (e.inputType === "insertFromPaste" || e.inputType === "insertFromDrop") return;
-    if (e.inputType.startsWith("insert")) st.typed += (e.data || " ").length;
+  // hand-typed share: count what actually entered the editor, not what the event claims.
+  // Small inserts from the keyboard (letters, Enter, a word from the suggestions bar) are typed;
+  // everything else that adds text (paste, drag and drop, keyboard clipboard, scripts) counts as pasted.
+  const TYPING = new Set(["insertText", "insertCompositionText", "insertLineBreak", "insertParagraph", "insertReplacementText"]);
+  let lastType = "", prevLen = ed.value.length, replaced = 0;
+  ed.addEventListener("beforeinput", (e) => { lastType = e.inputType || ""; replaced = ed.selectionEnd - ed.selectionStart; });
+  ed.addEventListener("input", (e) => {
+    const type = e.inputType || lastType, delta = ed.value.length - prevLen + replaced; // text that came in
+    if (delta > 0) { if (TYPING.has(type) && delta <= 20) st.typed += delta; else st.pasted += delta; }
+    prevLen = ed.value.length; lastType = ""; replaced = 0;
+    paintAll(); upd(); onChange && onChange(ed.value);
   });
-  ed.addEventListener("paste", (e) => { st.pasted += ((e.clipboardData && e.clipboardData.getData("text")) || "").length; setTimeout(upd); });
-  ed.addEventListener("input", () => { paintAll(); upd(); onChange && onChange(ed.value); });
   ed.addEventListener("keydown", (e) => {
-    if (e.key === "Tab") { e.preventDefault(); const s = ed.selectionStart; ed.setRangeText("  ", s, ed.selectionEnd, "end"); st.typed += 2; paintAll(); upd(); }
+    if (e.key === "Tab") { e.preventDefault(); const s = ed.selectionStart; ed.setRangeText("  ", s, ed.selectionEnd, "end"); st.typed += 2; prevLen = ed.value.length; paintAll(); upd(); onChange && onChange(ed.value); }
   });
 
   const run = () => {
@@ -214,7 +227,7 @@ export function mountWorkspace(root, { code = "", onChange, onError, typed = 0, 
   if (code) run();
   return {
     get code() { return ed.value; },
-    set code(v) { ed.value = v; paintAll(); run(); },
+    set code(v) { ed.value = v; prevLen = v.length; paintAll(); run(); },
     stats: st, run,
     destroy() { window.removeEventListener("message", onMsg); },
     async runAndCollect() { run(); await new Promise((r) => setTimeout(r, 700)); return { output: st.output, errors: st.errors.join("\n") }; },

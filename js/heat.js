@@ -5,6 +5,7 @@ import { esc } from "./lib.js";
 const KINDS = [
   ["unclosed", /Tag <\w+> is not closed/, "وسم مفتوح لم يُغلق"],
   ["unknown", /Unknown tag/, "اسم وسم غير صحيح"],
+  ["dup", /Duplicate </, "تكرار وسم من هيكل الصفحة"],
   ["stray", /Closing tag <\/\w+> has no opening/, "وسم إغلاق بلا وسم فتح"],
   ["null", /Cannot (read|set) propert(y|ies) of (null|undefined)/, "استدعاء عنصر غير موجود في الصفحة"],
   ["notdef", /is not defined/, "اسم غير معرّف (إملاء أو حالة الأحرف)"],
