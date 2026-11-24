@@ -177,3 +177,7 @@ details.lec:not([open]) .list{display:none}
 .ws.task .ta-q{grid-area:q} .ws.task .ta-code{grid-area:code} .ws.task .ta-s{grid-area:s;align-self:start}
 @media (max-width:900px){.ws.task{grid-template-areas:"q" "code" "s";grid-template-rows:auto}}
 details.card>summary{cursor:pointer} details.card:not([open]){padding-top:12px;padding-bottom:12px}
+
+/* the send bar stays in view while the trainer scrolls through long drafts */
+.sendbar{position:sticky;bottom:8px;z-index:5;display:flex;flex-direction:column;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:10px;box-shadow:0 6px 24px #0003}
+@media (max-width:720px){.sendbar{bottom:calc(72px + env(safe-area-inset-bottom))}}

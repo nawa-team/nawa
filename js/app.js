@@ -682,15 +682,21 @@ route("/m/lecture/:id", async ({ id }) => {
       const { tasks } = await ai("tasks", { class_id: lec.class_id, topics: chosen });
       tasks.forEach((t, i) => { if (!t.slide) t.slide = (chosen.find((c) => c.topic === t.topic) || chosen[i])?.page ?? null; });
       $("#drafts", m).innerHTML = `<div class="card"><h3>مسودات التمارين</h3><p class="small muted">راجع وعدّل، ثم اختر لمن ترسل.</p>
-        ${tasks.map((t, i) => `<div class="card" style="background:var(--sunk)"><label class="row small"><input type="checkbox" checked data-pick="${i}"> إرسال هذا التمرين</label>${taskForm(t, i)}</div>`).join("")}
-        <div class="seg" role="group"><button type="button" data-to="all" aria-pressed="true">الفصل كاملًا</button><button type="button" data-to="one" aria-pressed="false">متدرب محدد</button></div>
+        <div id="dlist">${tasks.map((t, i) => draftCard(t, i)).join("")}</div>
+        <div class="sendbar"><div class="seg" role="group"><button type="button" data-to="all" aria-pressed="true">الفصل كاملًا</button><button type="button" data-to="one" aria-pressed="false">متدرب محدد</button></div>
         <select class="f" id="who" hidden>${(members || []).map((x) => `<option value="${x.user_id}">${esc(x.profiles?.full_name || "متدرب")}</option>`).join("")}</select>
-        <button class="btn" id="send">إرسال</button></div>`;
+        <div class="row"><button type="button" class="btn plain" id="addone">＋ تمرين من عندك</button><button class="btn grow" id="send">إرسال التمارين المختارة</button></div></div></div>`;
+      let n = tasks.length;
+      const count = () => { const k = $$("[data-pick]:checked", m).length; $("#send", m).textContent = k ? `إرسال ${k} ${k === 1 ? "تمرين" : k === 2 ? "تمرينين" : k <= 10 ? "تمارين" : "تمرينًا"}` : "اختر تمرينًا للإرسال"; };
+      $("#dlist", m).onchange = (ev) => { if (ev.target.matches("[data-pick]")) count(); };
+      $("#addone", m).onclick = () => { const w = document.createElement("div"); w.innerHTML = draftCard({ topic: chosen[0]?.topic || "", starter_code: "<!DOCTYPE html>\n<html>\n<head>\n</head>\n<body>\n\n</body>\n</html>" }, n++); const c = w.firstElementChild; $("#dlist", m).append(c); count(); $('[name="title"]', c).focus(); };
+      count();
       let to = "all";
       $$("[data-to]", m).forEach((x) => (x.onclick = () => { to = x.dataset.to; $$("[data-to]", m).forEach((y) => y.setAttribute("aria-pressed", y === x)); $("#who", m).hidden = to !== "one"; }));
       $("#send", m).onclick = async () => {
         const rows = $$("[data-pick]:checked", m).map((x) => ({ ...readTask($(`[data-task="${x.dataset.pick}"]`, m)), class_id: lec.class_id, lecture_id: id, target_user: to === "one" ? $("#who", m).value : null }));
         if (!rows.length) return toast("اختر تمرينًا واحدًا على الأقل");
+        if (rows.some((r) => !r.topic || !r.title || !r.prompt)) return toast("أكمل الموضوع والعنوان والمطلوب في كل تمرين مختار");
         if (to === "one" && !$("#who", m).value) return toast("لا يوجد متدربون في الفصل بعد");
         const { error } = await sb.from("tasks").insert(rows);
         if (error) return toast(friendly(error));
@@ -700,6 +706,7 @@ route("/m/lecture/:id", async ({ id }) => {
     b.disabled = false; b.textContent = "توليد تمارين للمواضيع المختارة";
   };
 });
+const draftCard = (t, i) => `<div class="card" style="background:var(--sunk)"><label class="row small"><input type="checkbox" checked data-pick="${i}"> إرسال هذا التمرين</label>${taskForm(t, i)}</div>`;
 const topicsHTML = (ts) => ts?.length ? ts.map((t, i) => `<label class="row small" style="align-items:flex-start"><input type="checkbox" value="${i}" checked style="margin-top:5px"><span class="grow"><b>${esc(t.topic)}</b> <span class="tiny muted">ص ${t.page ?? "—"}</span><br><span class="muted">${esc(t.summary)}</span></span></label>`).join("") : `<p class="small muted">لم تُستخرج مواضيع بعد.</p>`;
 
 route("/m/task/:id", async ({ id }) => {
