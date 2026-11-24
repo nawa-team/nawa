@@ -500,8 +500,8 @@ route("/m/class/:id", async ({ id }) => {
     <h3>إضافة</h3>
     <details class="card"${lecs?.length ? "" : " open"}><summary><b>＋ رفع محاضرة جديدة</b></summary>
       <form class="pane" id="up">
-        <label class="f">العنوان<input class="f" name="title" required maxlength="100" placeholder="المحاضرة 3: الحلقات"></label>
-        <label class="f">ملف PDF (حتى 15 ميجا)<input class="f" name="file" type="file" accept="application/pdf,.pdf" required><span class="tiny muted">إذا كان العرض بوربوينت، احفظه PDF أولًا.</span></label>
+        <label class="f">العنوان<input class="f" name="title" maxlength="100" placeholder="اختياري: يؤخذ من اسم الملف"></label>
+        <label class="f">ملف PDF (حتى 15 ميجا)<input class="f" name="file" type="file" accept="application/pdf,.pdf"><span class="tiny muted">إذا كان العرض بوربوينت، احفظه PDF أولًا.</span></label>
         <button class="btn">رفع</button><p class="small" id="upmsg" style="color:var(--bad)"></p></form></details>
     <details class="card"><summary><b>＋ إضافة تمرين يدوي</b></summary>${taskForm()}</details>
     <details class="card"><summary><b>⚙ إعدادات الشعبة</b></summary>
@@ -532,7 +532,7 @@ route("/m/class/:id", async ({ id }) => {
     let path;
     try { path = await uploadPdf(id, f.get("file")); }
     catch (er) { b.disabled = false; b.textContent = "رفع"; return ($("#upmsg").textContent = friendly(er)); }
-    const { data: lec, error: e2 } = await sb.from("lectures").insert({ class_id: id, title: f.get("title").trim(), file_path: path }).select().single();
+    const { data: lec, error: e2 } = await sb.from("lectures").insert({ class_id: id, title: (f.get("title") || "").trim() || f.get("file").name.replace(/\.pdf$/i, "").slice(0, 100), file_path: path }).select().single();
     if (e2) { b.disabled = false; b.textContent = "رفع"; return ($("#upmsg").textContent = friendly(e2)); }
     go("/m/lecture/" + lec.id + "?extract=1");
   };
@@ -583,7 +583,7 @@ route("/m/lecture/:id", async ({ id }) => {
           ${ltasks?.length ? ltasks.map((t) => `<div class="row small"><a class="grow" href="#/m/task/${t.id}">${esc(t.title)}</a><label class="row tiny">الشريحة<input class="f" type="number" min="1" max="999" data-slide="${t.id}" value="${t.slide ?? ""}" style="width:76px"></label></div>`).join("") : `<p class="small muted">لا توجد تمارين لهذه المحاضرة بعد.</p>`}</div>
         <details class="card"><summary><b>إدارة المحاضرة</b></summary>
           <form class="row" id="ren"><input class="f grow" name="title" required maxlength="100" value="${esc(lec.title)}"><button class="btn plain">حفظ العنوان</button></form>
-          <form class="pane" id="rep"><label class="f">استبدال الملف (PDF)<input class="f" name="file" type="file" accept="application/pdf,.pdf" required></label><button class="btn plain">استبدال الملف</button><p class="small" id="repmsg" style="color:var(--bad)"></p></form>
+          <form class="pane" id="rep"><label class="f">استبدال الملف (PDF)<input class="f" name="file" type="file" accept="application/pdf,.pdf"></label><button class="btn plain">استبدال الملف</button><p class="small" id="repmsg" style="color:var(--bad)"></p></form>
           <button class="switch" id="hide" aria-pressed="${!!lec.hidden}"><i></i>إخفاء المحاضرة عن المتدربين</button>
           <span class="tiny muted">المخفية لا يراها المتدربون حتى تُظهرها. التمارين المرسلة تبقى كما هي.</span>
           <button class="btn plain" id="dellec">حذف المحاضرة</button></details></section>
