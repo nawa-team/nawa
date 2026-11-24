@@ -22,8 +22,14 @@ const HINTS = [
 const TAGS = new Set("html head body title meta link style script div span p a img ul ol li table thead tbody tfoot tr td th caption h1 h2 h3 h4 h5 h6 br hr b i u strong em small mark sub sup pre code blockquote form input button label select option textarea fieldset legend nav header footer main section article aside figure figcaption video audio source iframe canvas svg path circle rect line g text center font marquee abbr cite dl dt dd details summary progress meter time data template noscript base col colgroup wbr q s del ins kbd samp var bdi bdo ruby rt rp picture track map area object embed param output datalist optgroup dialog address hgroup search slot".split(" "));
 const VOID = new Set("area base br col embed hr img input link meta source track wbr param".split(" "));
 const OPTIONAL = new Set(["html", "head", "body"]);
-// close tag names (one letter different), same first letter first: <hl> → <hr> / <h1>
-const near = (t) => [...TAGS].filter((k) => k.length === t.length && [...k].filter((c, i) => c !== t[i]).length === 1)
+// close tag names: one letter changed, added, missing or two letters swapped. Same first letter first: <hl> → <hr> / <h1>, <tabel> → <table>
+const oneOff = (a, b) => {
+  if (a === b || Math.abs(a.length - b.length) > 1) return false;
+  let i = 0; while (i < a.length && a[i] === b[i]) i++;
+  return a.slice(i + 1) === b.slice(i + 1) || a.slice(i) === b.slice(i + 1) || a.slice(i + 1) === b.slice(i)
+    || (a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2));
+};
+const near = (t) => [...TAGS].filter((k) => oneOff(t, k))
   .sort((a, b) => (b[0] === t[0]) - (a[0] === t[0]) || (b === "hr") - (a === "hr")).slice(0, 2).join("> or <");
 export function htmlIssues(code) {
   // blank out comments, scripts and styles (keeping line breaks) so only real tags are checked

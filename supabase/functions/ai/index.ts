@@ -21,14 +21,14 @@ const json = (b: unknown, status = 200) =>
 
 async function gemini(system: string, user: string, schema: unknown) {
   if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY is not set");
-  // busy model (503/429): wait and retry, then fall back to the lighter free model
+  // busy model (503/429): switch between the two free models and retry with short waits
   let last = "";
-  for (const [model, wait] of [[MODEL, 0], [FALLBACK, 0], [MODEL, 2000]] as const) {
+  for (const [model, wait] of [[MODEL, 0], [FALLBACK, 0], [MODEL, 1500], [FALLBACK, 3000]] as const) {
     if (wait) await new Promise((r) => setTimeout(r, wait));
     try { return await callGemini(model, system, user, schema); }
-    catch (e) { last = String((e as Error).message); if (!/Gemini (503|429|500)|timed? ?out|abort/i.test(last)) throw e; }
+    catch (e) { last = String((e as Error).message); console.log("gemini fail", model, last.replace(/\s+/g, " ").slice(0, 700)); if (!/Gemini (503|429|500)|timed? ?out|abort/i.test(last)) throw e; }
   }
-  throw new Error("الذكاء الاصطناعي مشغول الآن، جرّب بعد دقيقة. (" + last.slice(0, 60) + ")");
+  throw new Error("خدمة الذكاء الاصطناعي مزدحمة الآن من جهة Google. جرّب بعد دقيقة."); // details are in the function logs
 }
 
 async function callGemini(model: string, system: string, user: string, schema: unknown, fast = true): Promise<any> {
@@ -45,7 +45,7 @@ async function callGemini(model: string, system: string, user: string, schema: u
     }),
   });
   if (r.status === 400 && fast) return callGemini(model, system, user, schema, false); // model without that option
-  if (!r.ok) throw new Error(`Gemini ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  if (!r.ok) throw new Error(`Gemini ${r.status}: ${(await r.text()).slice(0, 900)}`);
   const d = await r.json();
   const text = d?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("") ?? "";
   return JSON.parse(text);
