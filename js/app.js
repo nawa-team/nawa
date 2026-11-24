@@ -557,7 +557,7 @@ route("/m/class/:id", async ({ id }) => {
     let path;
     try { path = await uploadPdf(id, f.get("file")); }
     catch (er) { b.disabled = false; b.textContent = "رفع"; return ($("#upmsg").textContent = friendly(er)); }
-    const { data: lec, error: e2 } = await sb.from("lectures").insert({ class_id: id, title: (f.get("title") || "").trim() || f.get("file").name.replace(/\.pdf$/i, "").slice(0, 100), file_path: path }).select().single();
+    const { data: lec, error: e2 } = await sb.from("lectures").insert({ class_id: id, title: (f.get("title") || "").trim() || f.get("file").name.replace(/\.pdf$/i, "").replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "").replace(/[-_]+/g, " ").trim().slice(0, 100), file_path: path }).select().single();
     if (e2) { b.disabled = false; b.textContent = "رفع"; return ($("#upmsg").textContent = friendly(e2)); }
     go("/m/lecture/" + lec.id + "?extract=1");
   };
