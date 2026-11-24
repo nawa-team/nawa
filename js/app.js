@@ -683,9 +683,10 @@ route("/m/lecture/:id", async ({ id }) => {
       tasks.forEach((t, i) => { if (!t.slide) t.slide = (chosen.find((c) => c.topic === t.topic) || chosen[i])?.page ?? null; });
       $("#drafts", m).innerHTML = `<div class="card"><h3>مسودات التمارين</h3><p class="small muted">راجع وعدّل، ثم اختر لمن ترسل.</p>
         <div id="dlist">${tasks.map((t, i) => draftCard(t, i)).join("")}</div>
-        <div class="sendbar"><div class="seg" role="group"><button type="button" data-to="all" aria-pressed="true">الفصل كاملًا</button><button type="button" data-to="one" aria-pressed="false">متدرب محدد</button></div>
+        <button type="button" class="btn plain" id="addone">＋ إضافة تمرين من عندك</button>
+        <div class="seg" role="group"><button type="button" data-to="all" aria-pressed="true">الفصل كاملًا</button><button type="button" data-to="one" aria-pressed="false">متدرب محدد</button></div>
         <select class="f" id="who" hidden>${(members || []).map((x) => `<option value="${x.user_id}">${esc(x.profiles?.full_name || "متدرب")}</option>`).join("")}</select>
-        <div class="row"><button type="button" class="btn plain" id="addone">＋ تمرين من عندك</button><button class="btn grow" id="send">إرسال التمارين المختارة</button></div></div></div>`;
+        <button class="btn sendfix" id="send">إرسال التمارين المختارة</button></div>`;
       let n = tasks.length;
       const count = () => { const k = $$("[data-pick]:checked", m).length; $("#send", m).textContent = k ? (k === 1 ? "إرسال تمرين واحد" : k === 2 ? "إرسال تمرينين" : `إرسال ${k} ${k <= 10 ? "تمارين" : "تمرينًا"}`) : "اختر تمرينًا للإرسال"; };
       $("#dlist", m).onchange = (ev) => { if (ev.target.matches("[data-pick]")) count(); };
@@ -693,7 +694,6 @@ route("/m/lecture/:id", async ({ id }) => {
       count();
       // keep the whole send bar above the bottom tab bar, whatever its real height on this device
       const tabs = document.querySelector(".tabs"); if (tabs) document.documentElement.style.setProperty("--tabsh", tabs.offsetHeight + "px");
-      $("#drafts", m).scrollIntoView({ behavior: "smooth", block: "start" });
       let to = "all";
       $$("[data-to]", m).forEach((x) => (x.onclick = () => { to = x.dataset.to; $$("[data-to]", m).forEach((y) => y.setAttribute("aria-pressed", y === x)); $("#who", m).hidden = to !== "one"; }));
       $("#send", m).onclick = async () => {

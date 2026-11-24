@@ -178,7 +178,6 @@ details.lec:not([open]) .list{display:none}
 @media (max-width:900px){.ws.task{grid-template-areas:"q" "code" "s";grid-template-rows:auto}}
 details.card>summary{cursor:pointer} details.card:not([open]){padding-top:12px;padding-bottom:12px}
 
-/* the send bar stays in view while the trainer scrolls through long drafts */
-.sendbar{position:sticky;bottom:8px;z-index:5;display:flex;flex-direction:column;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:10px;box-shadow:0 6px 24px #0003}
-@media (max-width:720px){.sendbar{bottom:calc(var(--tabsh, 76px) + 10px)}}
-@media (min-width:560px){.sendbar{flex-direction:row;flex-wrap:wrap;align-items:center}.sendbar .seg{flex:1 1 220px}.sendbar .row{flex:2 1 300px}.sendbar #who{flex-basis:100%}}
+/* the send button stays in view while the trainer scrolls through long drafts */
+.sendfix{position:sticky;bottom:10px;z-index:5;width:100%;padding:14px;font-size:16px;box-shadow:0 6px 20px #0004}
+@media (max-width:720px){.sendfix{bottom:calc(var(--tabsh, 76px) + 10px)}}
