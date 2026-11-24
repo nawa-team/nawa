@@ -498,12 +498,16 @@ route("/m", async () => {
 
 route("/m/class/:id", async ({ id }) => {
   loading(); await loadMe(); if (!need("trainer")) return;
-  const [{ data: c }, { data: lecs }, { data: tasks }, { count: nMem }] = await Promise.all([
+  const [{ data: c }, { data: lecs }, { data: tasks }, { data: nMemRows }] = await Promise.all([
     sb.from("classes").select("*").eq("id", id).single(),
     sb.from("lectures").select("id,title,hidden,created_at").eq("class_id", id).order("created_at", { ascending: false }),
-    sb.from("tasks").select("id,title,topic,target_user,lecture_id,slide,created_at,submissions(submitted_at)").eq("class_id", id).order("created_at", { ascending: false }),
-    sb.from("members").select("user_id", { count: "exact", head: true }).eq("class_id", id),
+    sb.from("tasks").select("id,title,topic,target_user,lecture_id,slide,created_at,submissions(user_id,submitted_at)").eq("class_id", id).order("created_at", { ascending: false }),
+    sb.from("members").select("user_id, profiles(full_name)").eq("class_id", id),
   ]);
+  const mem = (nMemRows || []).map((x) => ({ id: x.user_id, name: x.profiles?.full_name || "متدرب" })).sort((a, b) => a.name.localeCompare(b.name, "ar")), nMem = mem.length;
+  // per trainee: how many of the exercises meant for them were submitted
+  const forU = (u) => (tasks || []).filter((t) => !t.target_user || t.target_user === u);
+  const doneU = (u) => forU(u).filter((t) => (t.submissions || []).some((x) => x.user_id === u && x.submitted_at)).length;
   if (!c) return shell("m", "/m", `<div class="card empty">الفصل غير موجود.</div>`);
   fixLive(c);
   const mTaskRow = (t) => { const done = (t.submissions || []).filter((s) => s.submitted_at).length, all = t.target_user ? 1 : nMem ?? 0;
@@ -516,6 +520,9 @@ route("/m/class/:id", async ({ id }) => {
       <div class="card"><h3>المتابعة</h3><a class="btn" href="#/m/class/${id}/dash">${ICON.chart} لوحة الالتزام والأخطاء الشائعة</a>
         <p class="small muted">من أنجز، ونسبة الكتابة اليدوية، ووقت الحل، والأخطاء المتكررة.</p></div>
     </div>
+    <details class="lec"><summary class="lechead">${ICON.user || "👥"}<div class="grow"><b>متدربو الشعبة</b><div class="tiny muted">${nMem} متدرب · اضغط على الاسم لترى كل تمارينه</div></div><span class="fold" aria-hidden="true">⌄</span></summary>
+      <div class="list">${mem.length ? mem.map((u) => { const d = doneU(u.id), a = forU(u.id).length;
+        return `<a href="#/m/class/${id}/p/${u.id}"><div class="grow t">${esc(u.name)}</div><span class="chip ${a && d >= a ? "ok" : ""}">سلّم ${d} من ${a}</span></a>`; }).join("") : `<div class="empty">لم ينضم أحد بعد. اعرض رمز الفصل على الشاشة.</div>`}</div></details>
     <h3>المحاضرات وتمارينها</h3>
     ${lecs?.length ? lecs.map((l, i) => { const ts = (tasks || []).filter((t) => t.lecture_id === l.id);
       return `<details class="lec"${i === 0 ? " open" : ""}><summary class="lechead">${ICON.slides}<div class="grow"><b>${esc(l.title)}</b><div class="tiny muted">${ts.length} تمارين مرسلة · ${ago(l.created_at)}</div></div>${l.hidden ? `<span class="chip">مخفية</span>` : ""}<span class="fold" aria-hidden="true">⌄</span></summary>
@@ -812,6 +819,40 @@ route("/m/sub/:id", async ({ id }) => {
   };
 });
 
+// one trainee: every exercise of the class in one place, grouped by lecture
+route("/m/class/:id/p/:uid", async ({ id, uid }) => {
+  loading(); await loadMe(); if (!need("trainer")) return;
+  const [{ data: mrow }, { data: tasks }, { data: lecs }] = await Promise.all([
+    sb.from("members").select("user_id, profiles(full_name)").eq("class_id", id).eq("user_id", uid).maybeSingle(),
+    sb.from("tasks").select("id,title,topic,lecture_id,slide,target_user,created_at").eq("class_id", id).order("created_at"),
+    sb.from("lectures").select("id,title").eq("class_id", id).order("created_at"),
+  ]);
+  if (!mrow) return shell("m", "/m", `<div class="row"><a class="btn plain sm" href="#/m/class/${id}">→ الفصل</a></div><div class="card empty">هذا المتدرب ليس في الفصل.</div>`);
+  const T = (tasks || []).filter((t) => !t.target_user || t.target_user === uid), ids = T.map((t) => t.id);
+  const [{ data: subs }, { data: errs }] = ids.length ? await Promise.all([
+    sb.from("submissions").select("id,task_id,typed_chars,pasted_chars,opened_at,submitted_at,in_session,ai_verdict").eq("user_id", uid).in("task_id", ids),
+    sb.from("error_events").select("task_id").eq("user_id", uid).in("task_id", ids).limit(2000),
+  ]) : [{ data: [] }, { data: [] }];
+  const sm = Object.fromEntries((subs || []).map((s) => [s.task_id, s]));
+  const ec = {}; for (const e of errs || []) ec[e.task_id] = (ec[e.task_id] || 0) + 1;
+  const done = (subs || []).filter((s) => s.submitted_at);
+  const typed = done.reduce((a, s) => a + s.typed_chars, 0), pasted = done.reduce((a, s) => a + s.pasted_chars, 0), p = pct(typed, pasted);
+  const row = (t) => { const s = sm[t.id], e = ec[t.id] || 0;
+    const info = !s ? "لم يفتح التمرين" : s.submitted_at ? `كتابة يدوية ${pct(s.typed_chars, s.pasted_chars) ?? "—"}%${e ? ` · ${e} ${e > 2 && e < 11 ? "أخطاء" : "خطأ"} أثناء الحل` : ""}` : "فتحه ولم يسلّمه";
+    const chip = s?.submitted_at ? vchip(s.ai_verdict) || `<span class="chip ok">تم التسليم</span>` : `<span class="chip">${s ? "لم يُسلَّم" : "لم يبدأ"}</span>`;
+    const inner = `<div class="grow"><div class="t">${esc(t.title)}</div><div class="tiny muted">${info}</div></div>${chip}`;
+    return s?.submitted_at ? `<a href="#/m/sub/${s.id}">${inner}</a>` : `<div>${inner}</div>`; };
+  const groups = [...(lecs || []).map((l) => ({ title: l.title, items: T.filter((t) => t.lecture_id === l.id) })),
+    { title: GENERAL, items: T.filter((t) => !t.lecture_id || !(lecs || []).some((l) => l.id === t.lecture_id)) }].filter((g) => g.items.length);
+  shell("m", "/m", `<div class="row"><a class="btn plain sm" href="#/m/class/${id}">→ الفصل</a><h2 class="grow">${esc(mrow.profiles?.full_name || "متدرب")}</h2></div>
+    <div class="kpis">
+      <div class="kpi"><b>${done.length} من ${T.length}</b><span>التمارين المسلّمة</span></div>
+      <div class="kpi"><b>${p ?? "—"}%</b><span>نسبة الكتابة اليدوية</span></div>
+    </div>
+    ${groups.length ? groups.map((g) => `<h3>${esc(g.title)}</h3><div class="list">${g.items.map(row).join("")}</div>`).join("") : `<div class="card empty">لا توجد تمارين في الفصل بعد.</div>`}
+    <p class="tiny muted">للمتابعة وليست درجات. اضغط على التمرين المسلَّم لترى الكود وتكتب ملاحظة.</p>`, "narrow");
+});
+
 route("/m/class/:id/dash", async ({ id }) => {
   loading(); await loadMe(); if (!need("trainer")) return;
   const [{ data: c }, { data: rows, error }, { data: tasks }, { data: lecs }] = await Promise.all([
@@ -849,7 +890,7 @@ route("/m/class/:id/dash", async ({ id }) => {
     ${heatGroups.map((g) => `<div class="card heatcard"><h3>خريطة الأخطاء: ${esc(g.title)}</h3>${heatmap(g.items, errs, R.length, { subs })}</div>`).join("")}
     <div class="card"><h3>الأخطاء الشائعة</h3>${common.length ? common.map(([k, n]) => `<div class="row small"><code class="grow" style="text-align:end">${esc(k)}</code><span class="chip bad">${n} متدرب</span></div>`).join("") + `<p class="tiny muted">إذا تكرر الخطأ عند كثيرين، اشرحه للجميع من الشريحة.</p>` : `<p class="small muted">لا توجد أخطاء مسجّلة بعد.</p>`}</div>
     <div class="card scroll-x"><table class="t"><thead><tr><th>المتدرب</th><th>المسلّم</th><th>الكتابة اليدوية</th><th>وقت الحل</th><th>أثناء المحاضرة</th><th></th></tr></thead><tbody>
-      ${R.map((r) => `<tr><td><b>${esc(r.full_name || "متدرب")}</b></td><td>${r.tasks_done}/${r.tasks_total}</td><td ${r.typed_pct != null && r.typed_pct < 50 ? 'style="color:var(--bad);font-weight:700"' : ""}>${r.typed_pct ?? "—"}%</td><td>${fmtMin(r.avg_minutes)}</td><td>${r.in_session_pct ?? "—"}%</td><td><button class="btn plain sm" data-rm="${r.user_id}">إزالة</button></td></tr>`).join("") || `<tr><td colspan="5" class="muted">لا يوجد متدربون بعد.</td></tr>`}
+      ${R.map((r) => `<tr><td><a href="#/m/class/${id}/p/${r.user_id}"><b>${esc(r.full_name || "متدرب")}</b></a></td><td>${r.tasks_done}/${r.tasks_total}</td><td ${r.typed_pct != null && r.typed_pct < 50 ? 'style="color:var(--bad);font-weight:700"' : ""}>${r.typed_pct ?? "—"}%</td><td>${fmtMin(r.avg_minutes)}</td><td>${r.in_session_pct ?? "—"}%</td><td><button class="btn plain sm" data-rm="${r.user_id}">إزالة</button></td></tr>`).join("") || `<tr><td colspan="5" class="muted">لا يوجد متدربون بعد.</td></tr>`}
     </tbody></table></div>
     <p class="tiny muted">للمتابعة وليست درجات. الدرجة الرسمية في منصة تقني.</p>`);
   // remove a trainee from the class (two taps, so it is never by mistake). Their past work stays saved.

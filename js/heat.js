@@ -33,15 +33,13 @@ export function heatmap(tasks, errs, n, o = {}) {
     add(k.key + "|" + e.task_id, e.user_id); add(k.key + "|*", e.user_id);
   }
   // the two numbers on top: who handed in every exercise, and who handed in work without a single mistake
-  const by = new Map(); for (const x of o.subs || []) if (tset.has(x.task_id)) { if (!by.has(x.user_id)) by.set(x.user_id, new Set()); by.get(x.user_id).add(x.task_id); }
   // two numbers that add up to the class: who made a mistake, and who did not
   const hadErr = Math.min(erred.size, n || erred.size), noErr = Math.max((n || 0) - hadErr, 0);
   const stats = `<div class="heatstats">
     <div class="bad"><span>وقعوا في خطأ</span><b>${hadErr} من ${n}</b></div>
     <div class="good"><span>بلا أي خطأ</span><b>${noErr} من ${n}</b></div></div>`;
-  const doneOf = (id) => [...by.values()].filter((v) => v.has(id)).length;
   if (!kinds.size) return `${stats}<div class="heatinfo ok">لا توجد أخطاء مسجّلة بعد. تظهر هنا لحظة تشغيل المتدربين لحلولهم.</div>`;
-  const cols = o.overall ? [{ id: "*", head: "كل التمارين" }] : tasks.map((t, i) => ({ id: t.id, head: `تمرين ${i + 1}`, sub: short(t.title), title: t.title, done: doneOf(t.id) }));
+  const cols = o.overall ? [{ id: "*", head: "كل التمارين" }] : tasks.map((t, i) => ({ id: t.id, head: `تمرين ${i + 1}`, sub: short(t.title), title: t.title }));
   const cnt = (k, c) => cell.get(k + "|" + c)?.size || 0;
   const pct = (c) => Math.min(100, Math.round((c / N) * 100));
   const rows = [...kinds].map(([k, label]) => ({ k, label, max: Math.max(...cols.map((c) => cnt(k, c.id))) })).filter((r) => r.max).sort((a, b) => b.max - a.max);
@@ -55,7 +53,7 @@ export function heatmap(tasks, errs, n, o = {}) {
     : `<div class="heatinfo">أكثر خطأ الآن: ${esc(worst.r.label)}${where}، وقع فيه ${worst.c} من ${n}.</div>`;
   const td = (c) => !c ? `<td><span class="hc zero">0%</span></td>`
     : `<td><span class="hc h${level(c)}" title="${c} من ${n}"><b>${pct(c)}%</b><small>${c} من ${n}</small></span></td>`;
-  return `${banner}${stats}<div class="scroll-x"><table class="heat${o.overall ? " one" : ""}"><thead><tr><th>نوع الخطأ</th>${cols.map((c) => `<th${c.title ? ` title="${esc(c.title)}"` : ""}>${c.head}${c.sub ? `<small>${esc(c.sub)}</small>` : ""}${c.done != null ? `<small>سلّم ${c.done} من ${n}</small>` : ""}</th>`).join("")}</tr></thead>
+  return `${banner}${stats}<div class="scroll-x"><table class="heat${o.overall ? " one" : ""}"><thead><tr><th>نوع الخطأ</th>${cols.map((c) => `<th${c.title ? ` title="${esc(c.title)}"` : ""}>${c.sub ? esc(c.sub) : c.head}</th>`).join("")}</tr></thead>
     <tbody>${rows.map((r) => `<tr><td class="kind">${esc(r.label)}</td>${cols.map((c) => td(cnt(r.k, c.id))).join("")}</tr>`).join("")}</tbody></table></div>
     <p class="heatkey">كل خانة: كم متدربًا من الفصل وقع في هذا الخطأ، ونسبتهم من الفصل. <span><i class="hc h1"></i>أقل من 20%</span><span><i class="hc h2"></i>من 20%: انتبه</span><span><i class="hc h3"></i>من 40%: توقف واشرح</span></p>`;
 }
