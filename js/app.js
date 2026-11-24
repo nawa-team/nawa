@@ -250,6 +250,19 @@ function lecBlock(l, tasks, open = false) {
 }
 const taskRow = (t) => `<a href="#/t/task/${t.id}"><div class="grow"><div class="t">${esc(t.title)}</div><div class="tiny muted">${esc(t.topic)}${t.slide ? ` · الشريحة ${t.slide}` : ""}${t.target_user ? " · مُرسل لك" : ""}${t.is_extra ? " · إضافي" : ""}${t.st === "done" ? ` · سُلّم ${ago(t.sub.submitted_at)}` : ""}</div></div>
   ${statusChip(t)}</a>`;
+// several classes: one clear row of class names on top (each page shows one class at a time)
+const classPicker = (list, cls) => list.length > 1 ? `<div class="seg clspick" role="group" aria-label="الشعبة">${list.map((c) => `<button type="button" data-cls="${c.id}" aria-pressed="${c.id === cls.id}">${esc(c.name)}</button>`).join("")}</div>` : "";
+function bindClassPicker(m) { $$("[data-cls]", m).forEach((b) => (b.onclick = () => { localStorage.setItem("nawa.class", b.dataset.cls); render(); })); }
+const GENERAL = "تمارين عامة للشعبة";
+// group items under the lecture they belong to (newest lecture first), then the class-wide ones
+function byLecture(items, lecs) {
+  const groups = (lecs || []).map((l) => ({ title: l.title, items: items.filter((t) => t.lecture_id === l.id) })).filter((g) => g.items.length);
+  const known = new Set((lecs || []).map((l) => l.id));
+  const rest = items.filter((t) => !t.lecture_id || !known.has(t.lecture_id));
+  if (rest.length) groups.push({ title: GENERAL, items: rest, general: true });
+  return groups;
+}
+const groupHead = (g) => `<div class="grouphead">${g.general ? ICON.code : ICON.slides}<span>${esc(g.title)}</span></div>`;
 // one chip only: after submitting, the result is the status
 const statusChip = (t) => t.st === "done" ? (vchip(t.sub.ai_verdict) || `<span class="chip ok">تم التسليم</span>`) : `<span class="chip ${STATUS[t.st][1]}">${STATUS[t.st][0]}</span>`;
 
@@ -263,14 +276,14 @@ route("/t", async () => {
   const liveLec = cls.live_slide ? (lecs || []).find((l) => l.id === cls.live_lecture) || lecs?.[0] : null;
   const slideTask = cls.live_slide ? await slideTaskFor(cls.live_lecture, cls.live_slide) : null;
   const m = shell("t", "/t", `
-    <div class="row"><div class="grow"><h1>أهلًا، ${esc(me.full_name || "")}</h1><p class="small muted">${esc(cls.name)}</p></div>
-      ${list.length > 1 ? `<select class="f" id="cls" style="width:auto">${list.map((c) => `<option value="${c.id}" ${c.id === cls.id ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>` : ""}</div>
+    <div><h1>أهلًا، ${esc(me.full_name || "")}</h1><p class="small muted">${esc(cls.name)}</p></div>
+    ${classPicker(list, cls)}
     <div class="card" id="live">${cls.live_slide ? `<span class="chip live" style="align-self:flex-start"><span class="dot"></span> الجلسة مباشرة الآن</span><p class="small">المدرب على الشريحة ${cls.live_slide}${liveLec ? ` من «${esc(liveLec.title)}»` : ""}. افتح المحاضرة وتابع معه.</p>${slideTask ? `<a class="btn" href="#/t/task/${slideTask.id}">تمرين هذه الشريحة: ${esc(slideTask.title)}</a>` : ""}${liveLec ? `<a class="btn live" href="#/t/lecture/${liveLec.id}">فتح المحاضرة</a>` : ""}` : `<span class="chip" style="align-self:flex-start">لا توجد جلسة الآن</span><p class="small muted">عند بدء الجلسة يظهر تنبيه هنا.</p>`}</div>
     <h3>المطلوب منك</h3>
-    <div class="list">${todo.length ? todo.map(taskRow).join("") : `<div class="empty">لا توجد تمارين مفتوحة 👏</div>`}</div>
+    ${todo.length ? byLecture(todo, lecs).map((g, i) => `<details class="lec"${i === 0 ? " open" : ""}><summary class="lechead">${g.general ? ICON.code : ICON.slides}<div class="grow"><b>${esc(g.title)}</b><div class="tiny muted">${g.items.length} ${g.items.length > 2 && g.items.length < 11 ? "تمارين مطلوبة" : "تمرين مطلوب"}</div></div><span class="fold" aria-hidden="true">⌄</span></summary><div class="list">${g.items.map(taskRow).join("")}</div></details>`).join("") : `<div class="list"><div class="empty">لا توجد تمارين مفتوحة 👏</div></div>`}
     ${lecs?.length ? `<h3>المحاضرات وتمارينها</h3>${lecs.slice(0, 3).map((l) => lecBlock(l, tasks)).join("")}${lecs.length > 3 ? `<a class="btn plain" href="#/t/tasks">كل المحاضرات</a>` : ""}` : ""}`);
   if (slideTask) popSlideTask(slideTask);
-  const sel = $("#cls", m); if (sel) sel.onchange = () => { localStorage.setItem("nawa.class", sel.value); render(); };
+  bindClassPicker(m);
   const ch = sb.channel("cls-" + cls.id).on("postgres_changes", { event: "UPDATE", schema: "public", table: "classes", filter: `id=eq.${cls.id}` }, () => render()).subscribe();
   onLeave(() => sb.removeChannel(ch));
 });
@@ -282,10 +295,12 @@ route("/t/tasks", async () => {
   const tasks = await loadTasksWithStatus(cls);
   const { data: lecs } = await sb.from("lectures").select("id,title,created_at").eq("class_id", cls.id).order("created_at", { ascending: false });
   const loose = tasks.filter((t) => !t.lecture_id || !(lecs || []).some((l) => l.id === t.lecture_id));
-  shell("t", "/t/tasks", `<h1>المحاضرات والتمارين</h1><p class="small muted">اضغط على اسم المحاضرة لعرض تمارينها.</p>
+  const m = shell("t", "/t/tasks", `<h1>المحاضرات والتمارين</h1><p class="small muted">${esc(cls.name)} · اضغط على اسم المحاضرة لعرض تمارينها.</p>
+    ${classPicker(list, cls)}
     ${(lecs || []).map((l, i) => lecBlock(l, tasks, i === 0)).join("")}
-    ${loose.length ? `<details class="lec"><summary class="lechead">${ICON.code}<b class="grow">تمارين إضافية</b><span class="fold" aria-hidden="true">⌄</span></summary><div class="list">${loose.map(taskRow).join("")}</div></details>` : ""}
+    ${loose.length ? `<details class="lec"><summary class="lechead">${ICON.code}<div class="grow"><b>${GENERAL}</b><div class="tiny muted">أرسلها المدرب بدون محاضرة · ${loose.length} ${loose.length > 2 ? "تمارين" : "تمرين"}</div></div><span class="fold" aria-hidden="true">⌄</span></summary><div class="list">${loose.map(taskRow).join("")}</div></details>` : ""}
     ${!lecs?.length && !tasks.length ? `<div class="card empty">لم تصلك محاضرات أو تمارين بعد.</div>` : ""}`);
+  bindClassPicker(m);
 });
 
 route("/t/task/:id", async ({ id }) => {
@@ -424,16 +439,22 @@ route("/t/lecture/:id", async ({ id }) => {
 route("/t/practice", async () => {
   loading(); await loadMe(); if (!need("trainee")) return;
   const list = await myClasses(); if (!list.length) return go("/t/join");
-  const tasks = await loadTasksWithStatus(currentClass(list));
-  const topics = [...new Set(tasks.map((t) => t.topic))];
-  const m = shell("t", "/t/practice", `<h1>التدريب</h1><p class="small muted">اختبارات قصيرة بدون درجة، يولّدها الذكاء الاصطناعي من مواضيع فصلك.</p>
-    <div class="btns" id="topics">${topics.length ? topics.map((t) => `<button class="btn ghost" data-t="${esc(t)}">${esc(t)}</button>`).join("") : `<span class="muted small">تظهر المواضيع بعد أن يرسل المدرب التمارين.</span>`}</div>
+  const cls = currentClass(list);
+  const tasks = await loadTasksWithStatus(cls);
+  const { data: lecs } = await sb.from("lectures").select("id,title,created_at").eq("class_id", cls.id).order("created_at", { ascending: false });
+  // one button per topic, under the lecture it came from
+  const groups = byLecture(tasks, lecs).map((g) => ({ ...g, topics: [...new Set(g.items.map((t) => t.topic))] }));
+  const m = shell("t", "/t/practice", `<h1>التدريب</h1><p class="small muted">${esc(cls.name)} · اختبارات قصيرة بدون درجة، يولّدها الذكاء الاصطناعي. اختر موضوعًا.</p>
+    ${classPicker(list, cls)}
+    <div id="topics">${groups.length ? groups.map((g) => `<div class="card">${groupHead(g)}<div class="btns">${g.topics.map((t) => `<button class="btn ghost" data-t="${esc(t)}">${esc(t)}</button>`).join("")}</div></div>`).join("") : `<span class="muted small">تظهر المواضيع بعد أن يرسل المدرب التمارين.</span>`}</div>
     <div id="quiz" class="quiz"></div>`, "narrow");
+  bindClassPicker(m);
   $$("#topics button", m).forEach((b) => (b.onclick = async () => {
-    const box = $("#quiz", m); box.innerHTML = `<div class="card"><span class="spinner"></span></div>`;
+    $$("#topics button", m).forEach((x) => x.setAttribute("aria-pressed", x === b));
+    const box = $("#quiz", m); box.innerHTML = `<div class="card"><span class="spinner"></span></div>`; box.scrollIntoView({ behavior: "smooth", block: "start" });
     try {
       const { questions } = await ai("quiz", { topic: b.dataset.t });
-      box.innerHTML = questions.map((q, i) => `<div class="card" data-q="${i}"><b>${i + 1}. ${esc(q.q)}</b>${q.options.map((o, j) => `<button class="opt" data-j="${j}">${esc(o)}</button>`).join("")}<p class="small muted" hidden>${esc(q.why)}</p></div>`).join("") + `<p class="ai-note">أسئلة من الذكاء الاصطناعي للتدريب فقط، وقد تحتوي أخطاء.</p>`;
+      box.innerHTML = `<div class="grouphead">${ICON.bulb}<span>اختبار: ${esc(b.dataset.t)}</span></div>` + questions.map((q, i) => `<div class="card" data-q="${i}"><b>${i + 1}. ${esc(q.q)}</b>${q.options.map((o, j) => `<button class="opt" data-j="${j}">${esc(o)}</button>`).join("")}<p class="small muted" hidden>${esc(q.why)}</p></div>`).join("") + `<p class="ai-note">أسئلة من الذكاء الاصطناعي للتدريب فقط، وقد تحتوي أخطاء.</p>`;
       $$("[data-q]", box).forEach((c) => {
         const q = questions[+c.dataset.q];
         $$(".opt", c).forEach((o) => (o.onclick = () => {
@@ -500,7 +521,7 @@ route("/m/class/:id", async ({ id }) => {
       return `<details class="lec"${i === 0 ? " open" : ""}><summary class="lechead">${ICON.slides}<div class="grow"><b>${esc(l.title)}</b><div class="tiny muted">${ts.length} تمارين مرسلة · ${ago(l.created_at)}</div></div>${l.hidden ? `<span class="chip">مخفية</span>` : ""}<span class="fold" aria-hidden="true">⌄</span></summary>
         <div class="list">${ts.map(mTaskRow).join("")}<a href="#/m/lecture/${l.id}" class="openlec">${ICON.slides}<div class="grow t">فتح المحاضرة: العرض المباشر والمواضيع وتوليد التمارين</div><span class="tiny">‹</span></a></div></details>`; }).join("")
       : `<div class="card empty">ارفع أول محاضرة (PDF) من «رفع محاضرة جديدة» تحت.</div>`}
-    ${(() => { const loose = (tasks || []).filter((t) => !t.lecture_id); return loose.length ? `<details class="lec"><summary class="lechead">${ICON.code}<div class="grow"><b>تمارين إضافية</b><div class="tiny muted">${loose.length} تمارين بدون محاضرة</div></div><span class="fold" aria-hidden="true">⌄</span></summary><div class="list">${loose.map(mTaskRow).join("")}</div></details>` : ""; })()}
+    ${(() => { const loose = (tasks || []).filter((t) => !t.lecture_id); return loose.length ? `<details class="lec"><summary class="lechead">${ICON.code}<div class="grow"><b>${GENERAL}</b><div class="tiny muted">${loose.length} ${loose.length > 2 ? "تمارين" : "تمرين"} بدون محاضرة</div></div><span class="fold" aria-hidden="true">⌄</span></summary><div class="list">${loose.map(mTaskRow).join("")}</div></details>` : ""; })()}
     <h3>إضافة</h3>
     <details class="card"${lecs?.length ? "" : " open"}><summary><b>＋ رفع محاضرة جديدة</b></summary>
       <form class="pane" id="up">

@@ -183,3 +183,10 @@ details.card>summary{cursor:pointer} details.card:not([open]){padding-top:12px;p
 @media (max-width:720px){.sendfix{bottom:calc(var(--tabsh, 76px) + 10px)}}
 /* room at the end of every page so nothing hides behind the bottom tab bar */
 @media (max-width:720px){main,main.wide{padding-bottom:calc(var(--tabsh, 80px) + 48px + env(safe-area-inset-bottom))}}
+/* a thin line with the lecture name, to separate groups of exercises or topics */
+.grouphead{display:flex;align-items:center;gap:8px;margin:10px 0 2px;font-weight:700;font-size:14px;color:var(--muted)}
+.grouphead::after{content:"";flex:1;height:1px;background:var(--line)}
+.grouphead svg{width:18px;height:18px;flex:none}
+.clspick{overflow-x:auto}.clspick button{white-space:nowrap}
+#topics .btn[aria-pressed="true"]{background:var(--gold);color:var(--on-gold)}
+#topics{display:flex;flex-direction:column;gap:10px} #topics .grouphead{margin-top:0}
