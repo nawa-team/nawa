@@ -35,8 +35,8 @@ export function heatmap(tasks, errs, n, o = {}) {
   // two numbers that add up to the class: who made a mistake, and who did not
   const hadErr = Math.min(erred.size, n || erred.size), noErr = Math.max((n || 0) - hadErr, 0);
   const stats = `<div class="heatstats">
-    <div class="bad"><span>وقعوا في خطأ</span><b>${hadErr} من ${n}</b></div>
-    <div class="good"><span>بلا أي خطأ</span><b>${noErr} من ${n}</b></div></div>`;
+    <div class="good"><span>بلا أي خطأ</span><b>${noErr} من ${n}</b></div>
+    <div class="bad"><span>وقعوا في خطأ</span><b>${hadErr} من ${n}</b></div></div>`;
   if (!kinds.size) return `${stats}<div class="heatinfo ok">لا توجد أخطاء مسجّلة بعد. تظهر هنا لحظة تشغيل المتدربين لحلولهم.</div>`;
   const cols = o.overall ? [{ id: "*", head: "كل التمارين" }] : tasks.map((t, i) => ({ id: t.id, head: `تمرين ${i + 1}`, sub: short(t.title), title: t.title }));
   // how many trainees handed in each exercise (one plain row, per lecture only)
@@ -52,10 +52,10 @@ export function heatmap(tasks, errs, n, o = {}) {
   const where = o.overall ? "" : ` في «${esc(worst.col.title)}»`;
   const banner = level(worst.c) === 3
     ? `<div class="heatalert" role="alert"><span><b>${worst.c} من ${n} (${pct(worst.c)}%)</b> وقعوا في خطأ: ${esc(worst.r.label)}${where}. يُنصح بالتوقف وشرحه للجميع.</span></div>`
-    : `<div class="heatinfo">أكثر خطأ الآن: ${esc(worst.r.label)}${where}، وقع فيه ${worst.c} من ${n}.</div>`;
+    : "";
   const td = (c) => !c ? `<td><span class="hc zero">0%</span></td>`
     : `<td><span class="hc h${level(c)}" title="${c} من ${n}"><b>${pct(c)}%</b><small>${c} من ${n}</small></span></td>`;
   return `${banner}${stats}<div class="scroll-x"><table class="heat${o.overall ? " one" : ""}"><thead><tr><th>نوع الخطأ</th>${cols.map((c) => `<th${c.title ? ` title="${esc(c.title)}"` : ""}>${c.sub ? esc(c.sub) : c.head}</th>`).join("")}</tr></thead>
     <tbody>${doneRow}${rows.map((r) => `<tr><td class="kind">${esc(r.label)}</td>${cols.map((c) => td(cnt(r.k, c.id))).join("")}</tr>`).join("")}</tbody></table></div>
-    <p class="heatkey">كل خانة: كم متدربًا من الفصل وقع في هذا الخطأ، ونسبتهم من الفصل. <span><i class="hc h1"></i>أقل من 20%</span><span><i class="hc h2"></i>من 20%: انتبه</span><span><i class="hc h3"></i>من 40%: توقف واشرح</span></p>`;
+    <p class="heatkey"><span><i class="hc h1"></i>أقل من 20%</span><span><i class="hc h2"></i>من 20%: انتبه</span><span><i class="hc h3"></i>من 40%: توقف واشرح</span></p>`;
 }

@@ -885,7 +885,7 @@ route("/m/class/:id/dash", async ({ id }) => {
       <div class="kpi"><b>${fmtMin(mid(R.map((r) => r.avg_minutes)))}</b><span>الوقت المعتاد لإنجاز المهمة</span></div>
       <div class="kpi"><b>${totalT ? Math.round((doneT / totalT) * 100) : "—"}%</b><span>التمارين المسلّمة</span></div>
     </div>
-    <div class="card heatcard"><h3>خريطة الأخطاء الحرارية: كل التمارين</h3><p class="tiny muted">أكثر الأخطاء في الفصل، من كل المحاضرات معًا.</p>
+    <div class="card heatcard"><h3>خريطة الأخطاء الحرارية: كل التمارين</h3>
       ${heatmap(T, errs, R.length, { subs, overall: true })}</div>
     ${heatGroups.map((g) => `<div class="card heatcard"><h3>خريطة الأخطاء: ${esc(g.title)}</h3>${heatmap(g.items, errs, R.length, { subs })}</div>`).join("")}
     <div class="card"><h3>الأخطاء الشائعة</h3>${common.length ? common.map(([k, n]) => `<div class="row small"><code class="grow" style="text-align:end">${esc(k)}</code><span class="chip bad">${n} متدرب</span></div>`).join("") + `<p class="tiny muted">إذا تكرر الخطأ عند كثيرين، اشرحه للجميع من الشريحة.</p>` : `<p class="small muted">لا توجد أخطاء مسجّلة بعد.</p>`}</div>
