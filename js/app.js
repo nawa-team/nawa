@@ -653,11 +653,10 @@ route("/m/lecture/:id", async ({ id }) => {
     if (!tids.length) return ($("#heat", m).innerHTML = heatmap([], [], nTr));
     const [{ data: errs }, { data: subs }] = await Promise.all([
       sb.from("error_events").select("task_id,user_id,message").in("task_id", tids).limit(5000),
-      sb.from("submissions").select("task_id").in("task_id", tids).not("submitted_at", "is", null),
+      sb.from("submissions").select("task_id,user_id").in("task_id", tids).not("submitted_at", "is", null),
     ]);
     if (!errs) return;
-    const done = {}; for (const x of subs || []) done[x.task_id] = (done[x.task_id] || 0) + 1;
-    const box = $("#heat", m); if (box) box.innerHTML = heatmap(ltasks.map((t) => ({ ...t, done: done[t.id] || 0 })), errs, nTr);
+    const box = $("#heat", m); if (box) box.innerHTML = heatmap(ltasks, errs, nTr, { subs });
   };
   loadPulse(); loadHeat();
   const pt = setInterval(() => { loadPulse(); loadHeat(); }, 6000); onLeave(() => clearInterval(pt));
@@ -811,10 +810,11 @@ route("/m/sub/:id", async ({ id }) => {
 
 route("/m/class/:id/dash", async ({ id }) => {
   loading(); await loadMe(); if (!need("trainer")) return;
-  const [{ data: c }, { data: rows, error }, { data: tasks }] = await Promise.all([
+  const [{ data: c }, { data: rows, error }, { data: tasks }, { data: lecs }] = await Promise.all([
     sb.from("classes").select("name").eq("id", id).single(),
     sb.rpc("class_metrics", { p_class: id }),
-    sb.from("tasks").select("id,topic,title,created_at,submissions(submitted_at)").eq("class_id", id).order("created_at"),
+    sb.from("tasks").select("id,topic,title,lecture_id,slide,created_at,submissions(user_id,submitted_at)").eq("class_id", id).order("created_at"),
+    sb.from("lectures").select("id,title").eq("class_id", id).order("created_at"),
   ]);
   const ids = (tasks || []).map((t) => t.id);
   const { data: errs } = ids.length ? await sb.from("error_events").select("message,user_id,task_id").in("task_id", ids).limit(2000) : { data: [] };
@@ -822,7 +822,11 @@ route("/m/class/:id/dash", async ({ id }) => {
   const norm = (m) => m.replace(/'[^']*'|"[^"]*"/g, "…").replace(/^(\w+) is not defined/, "X is not defined");
   const g = {}; for (const e of errs || []) { const k = norm(e.message); (g[k] ||= new Set()).add(e.user_id); }
   const common = Object.entries(g).filter(([k]) => !/^Script error/i.test(k)).map(([k, s]) => [k, s.size]).sort((a, b) => b[1] - a[1]).slice(0, 6);
-  const R = rows || [];
+  const R = rows || [], T = tasks || [];
+  const subs = T.flatMap((t) => (t.submissions || []).filter((x) => x.submitted_at).map((x) => ({ task_id: t.id, user_id: x.user_id })));
+  const bySlide = (a, b) => (a.slide ?? 1e9) - (b.slide ?? 1e9);
+  const heatGroups = [...(lecs || []).map((l) => ({ title: l.title, items: T.filter((t) => t.lecture_id === l.id).sort(bySlide) })),
+    { title: "تمارين خارج المحاضرات", items: T.filter((t) => !t.lecture_id || !(lecs || []).some((l) => l.id === t.lecture_id)) }].filter((g) => g.items.length);
   const avg = (arr) => { const v = arr.filter((x) => x != null); return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null; };
   const totalT = R.reduce((a, r) => a + r.tasks_total, 0), doneT = R.reduce((a, r) => a + r.tasks_done, 0);
   const m = shell("m", "/m", `<div class="row"><a class="btn plain sm" href="#/m/class/${id}">→ ${esc(c?.name || "الفصل")}</a><h2 class="grow">الالتزام والأداء</h2></div>
@@ -834,8 +838,9 @@ route("/m/class/:id/dash", async ({ id }) => {
       <div class="kpi"><b>${fmtMin(avg(R.map((r) => r.avg_minutes)))}</b><span>متوسط وقت إنجاز المهمة</span></div>
       <div class="kpi"><b>${totalT ? Math.round((doneT / totalT) * 100) : "—"}%</b><span>التمارين المسلّمة</span></div>
     </div>
-    <div class="card"><h3>خريطة الأخطاء الحرارية</h3><p class="tiny muted">كل صف نوع خطأ، وكل عمود تمرين.</p>
-      ${heatmap((tasks || []).map((t) => ({ id: t.id, title: t.title, done: (t.submissions || []).filter((x) => x.submitted_at).length })), errs, R.length)}</div>
+    <div class="card heatcard"><h3>خريطة الأخطاء الحرارية: كل التمارين</h3><p class="tiny muted">أكثر الأخطاء في الفصل، من كل المحاضرات معًا.</p>
+      ${heatmap(T, errs, R.length, { subs, overall: true })}</div>
+    ${heatGroups.map((g) => `<div class="card heatcard"><h3>خريطة الأخطاء: ${esc(g.title)}</h3>${heatmap(g.items, errs, R.length, { subs })}</div>`).join("")}
     <div class="card"><h3>الأخطاء الشائعة</h3>${common.length ? common.map(([k, n]) => `<div class="row small"><code class="grow" style="text-align:end">${esc(k)}</code><span class="chip bad">${n} متدرب</span></div>`).join("") + `<p class="tiny muted">إذا تكرر الخطأ عند كثيرين، اشرحه للجميع من الشريحة.</p>` : `<p class="small muted">لا توجد أخطاء مسجّلة بعد.</p>`}</div>
     <div class="card scroll-x"><table class="t"><thead><tr><th>المتدرب</th><th>المسلّم</th><th>الكتابة اليدوية</th><th>وقت الحل</th><th>أثناء المحاضرة</th><th></th></tr></thead><tbody>
       ${R.map((r) => `<tr><td><b>${esc(r.full_name || "متدرب")}</b></td><td>${r.tasks_done}/${r.tasks_total}</td><td ${r.typed_pct != null && r.typed_pct < 50 ? 'style="color:var(--bad);font-weight:700"' : ""}>${r.typed_pct ?? "—"}%</td><td>${fmtMin(r.avg_minutes)}</td><td>${r.in_session_pct ?? "—"}%</td><td><button class="btn plain sm" data-rm="${r.user_id}">إزالة</button></td></tr>`).join("") || `<tr><td colspan="5" class="muted">لا يوجد متدربون بعد.</td></tr>`}
