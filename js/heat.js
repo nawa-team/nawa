@@ -41,7 +41,7 @@ export function heatmap(tasks, errs, n) {
     : `<div class="heatinfo">أكثر خطأ الآن: ${esc(worst.r.label)} (${wp}%). لا يحتاج توقفًا بعد.</div>`;
   const td = (c) => {
     const p = pct(c);
-    if (!c) return `<td><span class="hc zero">0%</span></td>`;
+    if (!c) return `<td><span class="hc zero">–</span></td>`;
     // نَوء colours, four clear steps: soft lime → lime → soft coral → coral
     const lv = p >= 60 ? 4 : p >= 40 ? 3 : p >= 20 ? 2 : 1;
     return `<td><span class="hc h${lv}" title="${people(c)}">${p}%</span></td>`;
@@ -49,5 +49,5 @@ export function heatmap(tasks, errs, n) {
   return `${banner}<div class="scroll-x"><table class="heat"><thead><tr><th>نوع الخطأ</th>${tasks.map((t, i) => `<th title="${esc(t.title)}">تمرين ${i + 1}<small>${esc(short(t.title))}</small>${t.done != null ? `<small>سلّم ${t.done} من ${n}</small>` : ""}</th>`).join("")}</tr></thead>
     <tbody>${rows.map((r) => `<tr><td class="kind">${esc(r.label)}</td>${tasks.map((t) => td(cnt(r.k, t.id))).join("")}</tr>`).join("")}</tbody></table></div>
     <div class="heatkey"><span>أقل من 20%</span><i class="hc h1"></i><i class="hc h2"></i><i class="hc h3"></i><i class="hc h4"></i><span>60% فأكثر</span></div>
-    <p class="tiny muted">النسبة = من وقع في الخطأ ÷ عدد متدربي الفصل. من 40% يظهر بالمرجاني: وقت التوقف والشرح. لا تظهر الأسماء.</p>`;
+    <p class="tiny muted">النسبة = من وقع في الخطأ ÷ عدد متدربي الفصل. كلما غمق اللون زاد من وقعوا في الخطأ، ومن 40% يظهر تنبيه للتوقف والشرح. لا تظهر الأسماء.</p>`;
 }

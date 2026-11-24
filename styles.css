@@ -198,19 +198,20 @@ details.card>summary{cursor:pointer} details.card:not([open]){padding-top:12px;p
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .heatalert{background:#0A0B0D;border-color:var(--coral)}}
 :root[data-theme="dark"] .heatalert{background:#0A0B0D;border-color:var(--coral)}
 .heatalert::before{content:"⚠";color:var(--coral);font-size:18px;line-height:1.4}
-.heatalert b{color:#C9DC4A}
-.heatinfo{background:var(--gold-soft);border-radius:12px;padding:10px 14px;font-size:13.5px;color:var(--ink)}
+.heatalert b{color:#F07A62}
+.heatinfo{background:var(--sunk);border-radius:12px;padding:10px 14px;font-size:13.5px;color:var(--muted)}
 .heatinfo.ok{background:var(--ok-soft);color:var(--ok)}
 table.heat{border-collapse:separate;border-spacing:5px;font-size:13.5px;min-width:100%}
 table.heat th{font-weight:600;color:var(--muted);font-size:12.5px;text-align:center;vertical-align:bottom;min-width:92px;padding:2px 4px}
 table.heat th small{display:block;font-weight:400;font-size:11px;white-space:nowrap}
 table.heat th:first-child,table.heat td.kind{text-align:start;min-width:128px;position:sticky;inset-inline-start:0;background:var(--surface);z-index:1}
 table.heat td.kind{font-weight:600;font-size:13px;line-height:1.5;padding-inline-end:8px}
-.hc{display:block;border-radius:9px;padding:9px 6px;text-align:center;font-weight:700;font-variant-numeric:tabular-nums;border:1px solid transparent}
-.hc.zero{background:var(--sunk);color:var(--muted);font-weight:500}
-.hc.h1{background:var(--gold-soft);color:var(--ink)}
-.hc.h2{background:var(--gold);color:#16181D}
-.hc.h3{background:color-mix(in srgb,var(--coral) 45%,var(--surface));color:var(--ink);border-color:var(--coral)}
+.hc{display:block;border-radius:9px;padding:9px 6px;text-align:center;font-weight:700;font-variant-numeric:tabular-nums}
+.hc.zero{background:transparent;border:1px dashed var(--line);color:var(--muted);font-weight:400;opacity:.7}
+/* one colour, four even steps of نَوء coral: the darker, the more trainees */
+.hc.h1{background:color-mix(in srgb,var(--coral) 16%,var(--surface));color:var(--ink)}
+.hc.h2{background:color-mix(in srgb,var(--coral) 38%,var(--surface));color:var(--ink)}
+.hc.h3{background:color-mix(in srgb,var(--coral) 68%,var(--surface));color:#fff}
 .hc.h4{background:var(--coral);color:#fff}
 .heatkey{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);flex-wrap:wrap}
 .heatkey i.hc{width:30px;height:14px;padding:0;border-radius:5px}
