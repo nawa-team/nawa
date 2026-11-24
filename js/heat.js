@@ -34,8 +34,13 @@ export function heatmap(tasks, errs, n, o = {}) {
   }
   // the two numbers on top: who handed in every exercise, and who handed in work without a single mistake
   const by = new Map(); for (const x of o.subs || []) if (tset.has(x.task_id)) { if (!by.has(x.user_id)) by.set(x.user_id, new Set()); by.get(x.user_id).add(x.task_id); }
-  const all = [...by.values()].filter((v) => v.size === tset.size).length, clean = [...by.keys()].filter((u) => !erred.has(u)).length;
-  const stats = `<div class="heatstats"><div><span>${tasks.length === 1 ? "سلّموا التمرين" : "سلّموا كل التمارين"}</span><b>${all} / ${n}</b></div><div><span>حلّوا دون أي خطأ</span><b>${clean}</b></div></div>`;
+  // every number is out of the whole class (n), so they read the same way: "x من n"
+  const all = [...by.values()].filter((v) => v.size === tset.size).length, some = by.size;
+  const clean = [...by.keys()].filter((u) => !erred.has(u)).length, hadErr = erred.size;
+  const one = tasks.length === 1;
+  const stats = `<div class="heatstats">
+    <div><span>${one ? "سلّموا التمرين" : "سلّموا كل التمارين"}</span><b>${all} من ${n}</b>${one ? "" : `<small>سلّم تمرينًا واحدًا على الأقل: ${some} من ${n}</small>`}</div>
+    <div><span>سلّموا دون أن يقعوا في أي خطأ</span><b>${clean} من ${n}</b><small>وقع في خطأ واحد على الأقل: ${hadErr} من ${n}</small></div></div>`;
   if (!kinds.size) return `${stats}<div class="heatinfo ok">لا توجد أخطاء مسجّلة بعد. تظهر هنا لحظة تشغيل المتدربين لحلولهم.</div>`;
   const cols = o.overall ? [{ id: "*", head: "كل التمارين" }] : tasks.map((t, i) => ({ id: t.id, head: `تمرين ${i + 1}`, sub: short(t.title), title: t.title }));
   const cnt = (k, c) => cell.get(k + "|" + c)?.size || 0;
@@ -48,10 +53,10 @@ export function heatmap(tasks, errs, n, o = {}) {
   const where = o.overall ? "" : ` في «${esc(worst.col.title)}»`;
   const banner = level(worst.c) === 3
     ? `<div class="heatalert" role="alert"><span><b>${worst.c} من ${n} (${pct(worst.c)}%)</b> وقعوا في خطأ: ${esc(worst.r.label)}${where}. يُنصح بالتوقف وشرحه للجميع.</span></div>`
-    : `<div class="heatinfo">أكثر خطأ الآن: ${esc(worst.r.label)}، ${worst.c} من ${n}.</div>`;
+    : `<div class="heatinfo">أكثر خطأ الآن: ${esc(worst.r.label)}${where}، وقع فيه ${worst.c} من ${n}.</div>`;
   const td = (c) => !c ? `<td><span class="hc zero">0%</span></td>`
     : `<td><span class="hc h${level(c)}" title="${c} من ${n}"><b>${pct(c)}%</b><small>${c} من ${n}</small></span></td>`;
   return `${banner}${stats}<div class="scroll-x"><table class="heat${o.overall ? " one" : ""}"><thead><tr><th>نوع الخطأ</th>${cols.map((c) => `<th${c.title ? ` title="${esc(c.title)}"` : ""}>${c.head}${c.sub ? `<small>${esc(c.sub)}</small>` : ""}</th>`).join("")}</tr></thead>
     <tbody>${rows.map((r) => `<tr><td class="kind">${esc(r.label)}</td>${cols.map((c) => td(cnt(r.k, c.id))).join("")}</tr>`).join("")}</tbody></table></div>
-    <p class="heatkey">النسبة = من وقعوا في الخطأ من الفصل. <span><i class="hc h1"></i>أقل من 20%</span><span><i class="hc h2"></i>من 20%: انتبه</span><span><i class="hc h3"></i>من 40%: توقف واشرح</span></p>`;
+    <p class="heatkey">كل خانة: كم متدربًا من الفصل وقع في هذا الخطأ، ونسبتهم من الفصل. <span><i class="hc h1"></i>أقل من 20%</span><span><i class="hc h2"></i>من 20%: انتبه</span><span><i class="hc h3"></i>من 40%: توقف واشرح</span></p>`;
 }
