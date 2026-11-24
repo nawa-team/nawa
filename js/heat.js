@@ -40,11 +40,10 @@ export function heatmap(tasks, errs, n) {
   const level = (c) => (!c ? 0 : c >= 2 && pct(c) >= 40 ? 3 : pct(c) >= 20 ? 2 : 1);
   const banner = !worst.c ? "" : level(worst.c) === 3
     ? `<div class="heatalert" role="alert"><span><b>${worst.c} من ${n} متدربين</b> وقعوا في خطأ: ${esc(worst.r.label)}، في «${esc(worst.t.title)}». يُنصح بالتوقف وشرحه للجميع.</span></div>`
-    : `<div class="heatinfo">أكثر خطأ الآن: ${esc(worst.r.label)} (${worst.c} من ${n}). لا يحتاج توقفًا بعد.</div>`;
+    : `<div class="heatinfo">أكثر خطأ الآن: ${esc(worst.r.label)} (${worst.c} من ${n})</div>`;
   const td = (c) => !c ? `<td><span class="hc zero">–</span></td>`
     : `<td><span class="hc h${level(c)}" title="${pct(c)}% من الفصل"><b>${c}</b> من ${n}</span></td>`;
   return `${banner}<div class="scroll-x"><table class="heat"><thead><tr><th>نوع الخطأ</th>${tasks.map((t, i) => `<th title="${esc(t.title)}">تمرين ${i + 1}<small>${esc(short(t.title))}</small>${t.done != null ? `<small>سلّم ${t.done} من ${n}</small>` : ""}</th>`).join("")}</tr></thead>
     <tbody>${rows.map((r) => `<tr><td class="kind">${esc(r.label)}</td>${tasks.map((t) => td(cnt(r.k, t.id))).join("")}</tr>`).join("")}</tbody></table></div>
-    <div class="heatkey"><span><i class="hc h1"></i>طبيعي: أقل من 20% من الفصل</span><span><i class="hc h2"></i>انتبه: من 20%</span><span><i class="hc h3"></i>توقف واشرح: 40% فأكثر</span></div>
-    <p class="tiny muted">كل خانة = عدد المتدربين الذين وقعوا في هذا الخطأ في هذا التمرين، من عدد متدربي الفصل. لا تظهر الأسماء.</p>`;
+    <div class="heatkey"><span><i class="hc h1"></i>طبيعي</span><span><i class="hc h2"></i>انتبه: 20% من الفصل</span><span><i class="hc h3"></i>توقف واشرح: 40%</span></div>`;
 }

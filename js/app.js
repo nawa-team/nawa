@@ -52,7 +52,7 @@ function need(role) {
 const LIVE_MS = 3 * 3600 * 1000;
 const fixLive = (c) => { if (c && c.live_slide && !(c.live_at && Date.now() - new Date(c.live_at) < LIVE_MS)) c.live_slide = null; return c; };
 const STATUS = { new: ["جديد", "new"], open: ["لم يُسلَّم", ""], done: ["تم التسليم", "ok"] };
-const VERDICT = { correct: ["صحيح", "ok"], partial: ["قريب", "new"], wrong: ["يحتاج مراجعة", "bad"] };
+const VERDICT = { correct: ["صحيح", "ok"], partial: ["صحيح جزئيًا", "new"], wrong: ["يحتاج مراجعة", "bad"] };
 const vchip = (v) => (v ? `<span class="chip ${VERDICT[v][1]}">${VERDICT[v][0]}</span>` : "");
 const pct = (a, b) => (a + b ? Math.round((a / (a + b)) * 100) : null);
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
@@ -601,24 +601,24 @@ route("/m/lecture/:id", async ({ id }) => {
         <div class="slidenav"><button class="btn plain sm" id="prev">›</button><span class="grow small muted" id="pg" style="text-align:center"></span><button class="btn plain sm" id="zoom">⤢ تكبير</button><button class="btn plain sm" id="next">‹</button></div>
         <div id="here"></div>
         <p class="tiny muted" id="livehint">${live ? "المتدربون الذين فعّلوا «متابعة شريحة المدرب» يتنقلون معك." : "ابدأ الجلسة ليتابع المتدربون الشريحة معك."}</p>
-        <div class="card"><div class="row"><h3 class="grow">نبض الشريحة</h3><span class="tiny muted">يتحدّث كل بضع ثوانٍ</span></div>
-          <p class="tiny muted">عدد المتدربين الذين ضغطوا «لم أفهم» على كل شريحة. لا تظهر الأسماء.</p><div class="btns" id="pulses"><span class="small muted">لا أحد حتى الآن.</span></div>
+        <div class="card"><h3>نبض الشريحة</h3>
+          <p class="tiny muted">كم متدربًا لم يفهم كل شريحة، دون أسماء.</p><div class="btns" id="pulses"><span class="small muted">لا أحد حتى الآن.</span></div>
           <div id="simp"></div></div>
-        <div class="card"><div class="row"><h3 class="grow">خريطة الأخطاء الحرارية</h3><span class="tiny muted">تتحدّث كل بضع ثوانٍ</span></div>
-          <p class="tiny muted">أين يتعثر الفصل في تمارين هذه المحاضرة، لتتوقف وتشرح قبل أن تكمل.</p><div id="heat"><span class="spinner"></span></div></div>
-        <div class="card"><h3>تمارين الشرائح</h3><p class="tiny muted">اربط التمرين برقم شريحة، فيظهر للمتدربين لحظة وصولك لها في الجلسة المباشرة.</p>
+        <div class="card"><h3>خريطة الأخطاء الحرارية</h3>
+          <p class="tiny muted">أين يتعثر الفصل في تمارين المحاضرة.</p><div id="heat"><span class="spinner"></span></div></div>
+        <div class="card"><h3>تمارين الشرائح</h3><p class="tiny muted">اكتب رقم الشريحة، فيظهر التمرين للمتدربين عند وصولك لها.</p>
           ${ltasks?.length ? ltasks.map((t) => `<div class="row small"><a class="grow" href="#/m/task/${t.id}">${esc(t.title)}</a><label class="row tiny">الشريحة<input class="f" type="number" min="1" max="999" data-slide="${t.id}" value="${t.slide ?? ""}" style="width:76px"></label></div>`).join("") : `<p class="small muted">لا توجد تمارين لهذه المحاضرة بعد.</p>`}</div>
         <details class="card"><summary><b>إدارة المحاضرة</b></summary>
           <form class="row" id="ren"><input class="f grow" name="title" required maxlength="100" value="${esc(lec.title)}"><button class="btn plain">حفظ العنوان</button></form>
           <form class="pane" id="rep"><label class="f">استبدال الملف (PDF)<input class="f" name="file" type="file" accept="application/pdf,.pdf"></label><button class="btn plain">استبدال الملف</button><p class="small" id="repmsg" style="color:var(--bad)"></p></form>
           <button class="switch" id="hide" aria-pressed="${!!lec.hidden}"><i></i>إخفاء المحاضرة عن المتدربين</button>
-          <span class="tiny muted">المخفية لا يراها المتدربون حتى تُظهرها. التمارين المرسلة تبقى كما هي.</span>
+          <span class="tiny muted">لا يراها المتدربون حتى تُظهرها.</span>
           <button class="btn plain" id="dellec">حذف المحاضرة</button></details></section>
       <section class="pane">
         <div class="card"><div class="row"><h3 class="grow">المواضيع</h3><button class="btn ghost sm" id="extract">${lec.topics?.length ? "إعادة الاستخراج" : "استخراج المواضيع بالذكاء"}</button></div>
           <div id="topics">${topicsHTML(lec.topics)}</div>
           <button class="btn" id="gen" ${lec.topics?.length ? "" : "hidden"}>توليد تمارين للمواضيع المختارة</button>
-          <p class="ai-note">المواضيع والتمارين اقتراحات من الذكاء الاصطناعي. أنت تراجعها وتعدّلها وتقرر إرسالها أو لا.</p></div>
+          <p class="ai-note">اقتراحات من الذكاء الاصطناعي، والقرار لك.</p></div>
         <div id="drafts"></div>
       </section>
     </div>`, "wide");
@@ -769,7 +769,7 @@ route("/m/task/:id", async ({ id }) => {
       <span class="tiny muted">التعديل يظهر للمتدربين فورًا. كود البداية الجديد يظهر لمن لم يفتح التمرين بعد.</span></details>
     <div class="list">${rows.length ? rows.map(({ name, s }) => {
       const p = s ? pct(s.typed_chars, s.pasted_chars) : null;
-      const inner = `<div class="grow"><div class="t">${esc(name)}</div><div class="tiny muted">${!s ? "لم يفتح التمرين" : s.submitted_at ? `كتابة يدوية ${p ?? "—"}% · وقت الحل ${fmtMin(Math.round((new Date(s.submitted_at) - new Date(s.opened_at)) / 60000))}${s.pasted_chars ? " · يوجد لصق" : ""}` : "قيد الحل الآن"}</div></div>
+      const inner = `<div class="grow"><div class="t">${esc(name)}</div><div class="tiny muted">${!s ? "لم يفتح التمرين" : s.submitted_at ? `${s.in_session ? "أثناء الجلسة" : "خارج الجلسة"} · كتابة يدوية ${p ?? "—"}% · وقت الحل ${fmtMin(Math.round((new Date(s.submitted_at) - new Date(s.opened_at)) / 60000))}${s.pasted_chars ? " · يوجد لصق" : ""}` : "قيد الحل الآن"}</div></div>
         ${s?.submitted_at ? vchip(s.ai_verdict) || `<span class="chip ok">تم التسليم</span>` : `<span class="chip">${s ? "فُتح ولم يُسلَّم" : "لم يبدأ"}</span>`}`;
       return s?.submitted_at ? `<a href="#/m/sub/${s.id}">${inner}</a>` : `<div>${inner}</div>`; }).join("") : `<div class="empty">لا يوجد متدربون في الفصل بعد.</div>`}</div>`, "narrow");
   $("#save").onclick = async () => {
@@ -790,7 +790,7 @@ route("/m/sub/:id", async ({ id }) => {
   const p = pct(s.typed_chars, s.pasted_chars);
   const mins = fmtMin(Math.round((new Date(s.submitted_at) - new Date(s.opened_at)) / 60000));
   const m = shell("m", "/m", `<div class="row"><a class="btn plain sm" href="#/m/task/${s.task_id}">→ التسليمات</a><h2 class="grow">تسليم: ${esc(s.profiles?.full_name || "متدرب")}</h2></div>
-    <div class="stats"><span>⏱ وقت الحل <b>${mins}</b></span><span class="${p != null && p < 50 ? "bad" : ""}">⌨ كتابة يدوية <b>${p ?? "—"}%</b></span><span class="${s.pasted_chars ? "bad" : ""}">📋 ${s.pasted_chars ? `لصق <b>${s.pasted_chars}</b> حرف` : "بدون لصق"}</span>${s.in_session ? `<span>🎓 حُلّ أثناء المحاضرة</span>` : ""}${(notes || []).length ? `<span>📝 ${(notes || []).length} ملاحظة</span>` : ""}</div>
+    <div class="stats"><span>⏱ وقت الحل <b>${mins}</b></span><span class="${p != null && p < 50 ? "bad" : ""}">⌨ كتابة يدوية <b>${p ?? "—"}%</b></span><span class="${s.pasted_chars ? "bad" : ""}">📋 ${s.pasted_chars ? `لصق <b>${s.pasted_chars}</b> حرف` : "بدون لصق"}</span><span>${s.in_session ? "🎓 حُلّ أثناء الجلسة المباشرة" : "🏠 حُلّ خارج الجلسة"}</span>${(notes || []).length ? `<span>📝 ${(notes || []).length} ملاحظة</span>` : ""}</div>
     <div class="ws review">
       <section class="pane"><h3>كود المتدرب</h3><div id="ws" class="pane"></div><p class="ai-note">هذا كود المتدرب كما سلّمه. التعديل هنا للتجربة فقط ولا يُحفظ.</p></section>
       <section class="pane">
@@ -834,13 +834,13 @@ route("/m/class/:id/dash", async ({ id }) => {
       <div class="kpi"><b>${fmtMin(avg(R.map((r) => r.avg_minutes)))}</b><span>متوسط وقت إنجاز المهمة</span></div>
       <div class="kpi"><b>${totalT ? Math.round((doneT / totalT) * 100) : "—"}%</b><span>التمارين المسلّمة</span></div>
     </div>
-    <div class="card"><h3>خريطة الأخطاء الحرارية</h3><p class="tiny muted">كل عمود تمرين، وكل صف نوع خطأ. تظهر أيضًا بجانب الشرائح أثناء الجلسة المباشرة.</p>
+    <div class="card"><h3>خريطة الأخطاء الحرارية</h3><p class="tiny muted">كل صف نوع خطأ، وكل عمود تمرين.</p>
       ${heatmap((tasks || []).map((t) => ({ id: t.id, title: t.title, done: (t.submissions || []).filter((x) => x.submitted_at).length })), errs, R.length)}</div>
     <div class="card"><h3>الأخطاء الشائعة</h3>${common.length ? common.map(([k, n]) => `<div class="row small"><code class="grow" style="text-align:end">${esc(k)}</code><span class="chip bad">${n} متدرب</span></div>`).join("") + `<p class="tiny muted">إذا تكرر الخطأ عند كثيرين، اشرحه للجميع من الشريحة.</p>` : `<p class="small muted">لا توجد أخطاء مسجّلة بعد.</p>`}</div>
     <div class="card scroll-x"><table class="t"><thead><tr><th>المتدرب</th><th>المسلّم</th><th>الكتابة اليدوية</th><th>وقت الحل</th><th>أثناء المحاضرة</th><th></th></tr></thead><tbody>
       ${R.map((r) => `<tr><td><b>${esc(r.full_name || "متدرب")}</b></td><td>${r.tasks_done}/${r.tasks_total}</td><td ${r.typed_pct != null && r.typed_pct < 50 ? 'style="color:var(--bad);font-weight:700"' : ""}>${r.typed_pct ?? "—"}%</td><td>${fmtMin(r.avg_minutes)}</td><td>${r.in_session_pct ?? "—"}%</td><td><button class="btn plain sm" data-rm="${r.user_id}">إزالة</button></td></tr>`).join("") || `<tr><td colspan="5" class="muted">لا يوجد متدربون بعد.</td></tr>`}
     </tbody></table></div>
-    <p class="tiny muted">الأرقام للمتابعة والدعم وليست درجات. الدرجة الرسمية في منصة تقني، والقرار للمدرب.</p>`);
+    <p class="tiny muted">للمتابعة وليست درجات. الدرجة الرسمية في منصة تقني.</p>`);
   // remove a trainee from the class (two taps, so it is never by mistake). Their past work stays saved.
   $$("[data-rm]", m).forEach((b) => (b.onclick = async () => {
     if (!b.dataset.sure) { b.dataset.sure = 1; b.textContent = "تأكيد الإزالة"; b.classList.add("danger"); return; }

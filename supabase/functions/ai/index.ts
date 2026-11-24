@@ -21,12 +21,13 @@ const json = (b: unknown, status = 200) =>
 
 async function gemini(system: string, user: string, schema: unknown) {
   if (!GEMINI_KEY) throw new Error("GEMINI_API_KEY is not set");
-  // busy model (503/429): switch between the two free models and retry with short waits
   let last = "";
-  for (const [model, wait] of [[MODEL, 0], [FALLBACK, 0], [MODEL, 1500], [FALLBACK, 3000]] as const) {
+  // busy model (503/429): switch between the two models and retry with short waits
+  const tries: [string, number][] = [[MODEL, 0], [FALLBACK, 0], [MODEL, 1500], [FALLBACK, 3000]];
+  for (const [model, wait] of tries) {
     if (wait) await new Promise((r) => setTimeout(r, wait));
     try { return await callGemini(model, system, user, schema); }
-    catch (e) { last = String((e as Error).message); console.log("gemini fail", model, last.replace(/\s+/g, " ").slice(0, 700)); if (!/Gemini (503|429|500)|timed? ?out|abort/i.test(last)) throw e; }
+    catch (e) { last = String((e as Error).message); console.log("gemini fail", model, last.replace(/\s+/g, " ").slice(0, 300)); if (!/Gemini (503|429|500|404|400)|timed? ?out|abort/i.test(last)) throw e; }
   }
   throw new Error("خدمة الذكاء الاصطناعي مزدحمة الآن من جهة Google. جرّب بعد دقيقة."); // details are in the function logs
 }
@@ -36,7 +37,7 @@ async function callGemini(model: string, system: string, user: string, schema: u
   if (fast) generationConfig.thinkingConfig = { thinkingBudget: 0 }; // short answers, no long "thinking" = faster
   const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: "POST",
-    signal: AbortSignal.timeout(30000), // don't hang: give up and try the other model
+    signal: AbortSignal.timeout(15000), // don't hang: give up and try the next model
     headers: { "Content-Type": "application/json", "x-goog-api-key": GEMINI_KEY },
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: system }] },
@@ -49,6 +50,19 @@ async function callGemini(model: string, system: string, user: string, schema: u
   const d = await r.json();
   const text = d?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("") ?? "";
   return JSON.parse(text);
+}
+
+// Saved answers: the same question (same instructions + same text) gets the saved answer instead of a new call.
+// Faster, uses fewer requests, and still works when Gemini is busy. Table ai_cache is readable by the server only.
+type DB = ReturnType<typeof createClient>;
+async function cached(admin: DB, system: string, user: string, schema: unknown) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(system + "\n\n" + user));
+  const key = [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const { data } = await admin.from("ai_cache").select("value").eq("key", key).maybeSingle();
+  if (data?.value) return structuredClone(data.value);
+  const out = await gemini(system, user, schema);
+  await admin.from("ai_cache").upsert({ key, value: out });
+  return out;
 }
 
 const SKELETON = "<!DOCTYPE html>\n<html>\n<head>\n</head>\n<body>\n\n</body>\n</html>";
@@ -85,7 +99,7 @@ Deno.serve(async (req) => {
       const { data: isT } = await userClient.from("classes").select("id").eq("id", lec.class_id).eq("trainer_id", user.id).maybeSingle();
       if (!isT) return json({ error: "للمدرب فقط" }, 403);
       const text = String(body.text ?? "").slice(0, 40000);
-      const out = await gemini(BASE + "\nاستخرج المواضيع البرمجية القابلة للتطبيق العملي من نص المحاضرة.",
+      const out = await cached(admin, BASE + "\nاستخرج المواضيع البرمجية القابلة للتطبيق العملي من نص المحاضرة.",
         `نص المحاضرة (كل صفحة تبدأ بـ [صفحة N]):\n${text}\n\nأعطني من 3 إلى 8 مواضيع. لكل موضوع: الاسم القصير (مثل: حلقة for)، وملخص سطر واحد، ورقم الصفحة.`,
         S({ topics: ARR(S({ topic: STR, summary: STR, page: { type: "INTEGER" } })) }));
       await userClient.from("lectures").update({ topics: out.topics }).eq("id", lec.id);
@@ -97,7 +111,7 @@ Deno.serve(async (req) => {
       const { data: isT } = await userClient.from("classes").select("id").eq("id", body.class_id).eq("trainer_id", user.id).maybeSingle();
       if (!isT) return json({ error: "للمدرب فقط" }, 403);
       const topics = (body.topics ?? []).slice(0, 8).map((t: { topic: string; summary?: string }) => `- ${t.topic}: ${t.summary ?? ""}`).join("\n");
-      const out = await gemini(BASE + "\nصمّم تمارين قصيرة تُحل في المتصفح بـ HTML و JavaScript وتظهر نتيجتها في المعاينة (داخل الصفحة أو عبر console.log). كود البداية هيكل فارغ فقط (DOCTYPE و html و head و body) بلا أي تعليق، فالمتدرب يحدد بنفسه أين يكتب.",
+      const out = await cached(admin, BASE + "\nصمّم تمارين قصيرة تُحل في المتصفح بـ HTML و JavaScript وتظهر نتيجتها في المعاينة (داخل الصفحة أو عبر console.log). كود البداية هيكل فارغ فقط (DOCTYPE و html و head و body) بلا أي تعليق، فالمتدرب يحدد بنفسه أين يكتب.",
         `المواضيع:\n${topics}\n\nلكل موضوع تمرين واحد: عنوان قصير، ونص المطلوب (سطرين)، والناتج المتوقع والمفهوم المطلوب (للتقييم فقط)، وكود بداية يكون هيكلًا فارغًا فقط (ليس فيه أي جزء من الحل).`,
         S({ tasks: ARR(S({ topic: STR, title: STR, prompt: STR, expected: STR, starter_code: STR })) }));
       // pin each exercise to the slide its topic came from («تمرين الشريحة»)
@@ -116,7 +130,7 @@ Deno.serve(async (req) => {
       const { data: task } = await userClient.from("tasks").select("title,prompt,expected,topic").eq("id", sub.task_id).single();
       const output = String(body.output_text ?? "").slice(0, 3000);
       const errors = String(body.errors ?? "").slice(0, 600);
-      const out = await gemini(BASE + `\nقيّم حل المتدرب حسب الناتج والمفهوم المطلوب في هذا التمرين. اقبل أي طريقة صحيحة تستخدم المفهوم المطلوب.
+      const out = await cached(admin, BASE + `\nقيّم حل المتدرب حسب الناتج والمفهوم المطلوب في هذا التمرين. اقبل أي طريقة صحيحة تستخدم المفهوم المطلوب.
 إذا كان الناتج صحيحًا لكن الحل لم يستخدم المفهوم المطلوب، أو استخدم أسلوبًا أعلى من مستوى التمرين لم يطلبه، فالتقييم partial، واذكر في الملاحظة أن الحل يعمل لكنه بطريقة مختلفة عن المطلوب وأن المدرب سيراجعه.
 correct = الناتج صحيح والمفهوم المطلوب مستخدم. partial = قريب لكن ينقصه شيء، أو بطريقة غير المطلوبة. wrong = لا يحقق المطلوب.
 الملاحظة: سطران كحد أقصى، تمدح الصحيح وتلمّح للناقص بدون كتابة الحل.`,
@@ -130,7 +144,7 @@ correct = الناتج صحيح والمفهوم المطلوب مستخدم. pa
     if (action === "hint") {
       const msg = String(body.message ?? "").slice(0, 300);
       const line = String(body.line_code ?? "").slice(0, 300);
-      const out = await gemini(BASE + "\nاشرح رسالة الخطأ الإنجليزية للمبتدئ، ثم أعط تلميحًا واحدًا يوجّهه بدون كتابة الكود الصحيح.",
+      const out = await cached(admin, BASE + "\nاشرح رسالة الخطأ الإنجليزية للمبتدئ، ثم أعط تلميحًا واحدًا يوجّهه بدون كتابة الكود الصحيح.",
         `رسالة الخطأ: ${msg}\nالسطر: ${line}`, S({ explain: STR, hint: STR }));
       return json(out);
     }
@@ -142,9 +156,9 @@ correct = الناتج صحيح والمفهوم المطلوب مستخدم. pa
       const { data: isT } = await userClient.from("classes").select("id").eq("id", lec.class_id).eq("trainer_id", user.id).maybeSingle();
       if (!isT) return json({ error: "للمدرب فقط" }, 403);
       const text = String(body.text ?? "").slice(0, 4000);
-      const n = Number(body.count ?? 0) || 0;
-      const out = await gemini(BASE + "\nأنت تساعد المدرب أثناء المحاضرة: عدد من المتدربين ضغطوا «لم أفهم» على هذه الشريحة. اقترح طريقة شرح أبسط يقولها المدرب الآن خلال دقيقتين.",
-        `نص الشريحة:\n${text || "(لا يوجد نص، الشريحة صورة)"}\n\nعدد من لم يفهموا: ${n}\n\nأعطني: سبب محتمل لعدم الفهم (سطر)، وشرحًا أبسط بتشبيه من الحياة اليومية (سطرين أو ثلاثة)، ومثال كود قصير جدًا (3 أسطر كحد أقصى) يوضح الفكرة، وسؤالًا سريعًا يتأكد به المدرب أنهم فهموا.`,
+      // the number of trainees is not sent, so the saved explanation of a slide can be reused
+      const out = await cached(admin, BASE + "\nأنت تساعد المدرب أثناء المحاضرة: عدد من المتدربين ضغطوا «لم أفهم» على هذه الشريحة. اقترح طريقة شرح أبسط يقولها المدرب الآن خلال دقيقتين.",
+        `نص الشريحة:\n${text || "(لا يوجد نص، الشريحة صورة)"}\n\nأعطني: سبب محتمل لعدم الفهم (سطر)، وشرحًا أبسط بتشبيه من الحياة اليومية (سطرين أو ثلاثة)، ومثال كود قصير جدًا (3 أسطر كحد أقصى) يوضح الفكرة، وسؤالًا سريعًا يتأكد به المدرب أنهم فهموا.`,
         S({ why: STR, explain: STR, example: STR, check: STR }));
       return json(out);
     }
