@@ -827,6 +827,8 @@ route("/m/class/:id/dash", async ({ id }) => {
   const bySlide = (a, b) => (a.slide ?? 1e9) - (b.slide ?? 1e9);
   const heatGroups = [...(lecs || []).map((l) => ({ title: l.title, items: T.filter((t) => t.lecture_id === l.id).sort(bySlide) })),
     { title: "تمارين خارج المحاضرات", items: T.filter((t) => !t.lecture_id || !(lecs || []).some((l) => l.id === t.lecture_id)) }].filter((g) => g.items.length);
+  // typical time = the middle value, so one trainee who left an exercise open for hours does not distort it
+  const mid = (arr) => { const v = arr.filter((x) => x != null).sort((a, b) => a - b); return v.length ? Math.round(v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2) : null; };
   const avg = (arr) => { const v = arr.filter((x) => x != null); return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null; };
   const totalT = R.reduce((a, r) => a + r.tasks_total, 0), doneT = R.reduce((a, r) => a + r.tasks_done, 0);
   const m = shell("m", "/m", `<div class="row"><a class="btn plain sm" href="#/m/class/${id}">→ ${esc(c?.name || "الفصل")}</a><h2 class="grow">الالتزام والأداء</h2></div>
@@ -835,7 +837,7 @@ route("/m/class/:id/dash", async ({ id }) => {
     <div class="kpis">
       <div class="kpi"><b>${avg(R.map((r) => r.typed_pct)) ?? "—"}%</b><span>نسبة الكتابة اليدوية</span></div>
       <div class="kpi"><b>${avg(R.map((r) => r.in_session_pct)) ?? "—"}%</b><span>المشاركة الصفية (حُلّت أثناء المحاضرة)</span></div>
-      <div class="kpi"><b>${fmtMin(avg(R.map((r) => r.avg_minutes)))}</b><span>متوسط وقت إنجاز المهمة</span></div>
+      <div class="kpi"><b>${fmtMin(mid(R.map((r) => r.avg_minutes)))}</b><span>الوقت المعتاد لإنجاز المهمة</span></div>
       <div class="kpi"><b>${totalT ? Math.round((doneT / totalT) * 100) : "—"}%</b><span>التمارين المسلّمة</span></div>
     </div>
     <div class="card heatcard"><h3>خريطة الأخطاء الحرارية: كل التمارين</h3><p class="tiny muted">أكثر الأخطاء في الفصل، من كل المحاضرات معًا.</p>
