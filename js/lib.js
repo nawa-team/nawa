@@ -42,7 +42,8 @@ export async function ai(action, payload) {
   return data;
 }
 
-export function fmtMin(m) { return m == null ? "—" : m < 1 ? "أقل من دقيقة" : `${m} د`; }
+export function fmtMin(m) { if (m == null) return "—"; if (m < 1) return "أقل من دقيقة"; if (m < 60) return `${m} د`;
+  const h = Math.floor(m / 60), r = m % 60; return h >= 24 ? `${Math.round(h / 24)} يوم` : r ? `${h} س ${r} د` : `${h} س`; }
 export function ago(ts) {
   const s = (Date.now() - new Date(ts)) / 1000;
   if (s < 60) return "الآن"; if (s < 3600) return `قبل ${Math.round(s / 60)} د`;

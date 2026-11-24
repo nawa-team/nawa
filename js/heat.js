@@ -32,7 +32,6 @@ export function heatmap(tasks, errs, n, o = {}) {
     const k = errKind(e.message); kinds.set(k.key, k.label); erred.add(e.user_id);
     add(k.key + "|" + e.task_id, e.user_id); add(k.key + "|*", e.user_id);
   }
-  // the two numbers on top: who handed in every exercise, and who handed in work without a single mistake
   // two numbers that add up to the class: who made a mistake, and who did not
   const hadErr = Math.min(erred.size, n || erred.size), noErr = Math.max((n || 0) - hadErr, 0);
   const stats = `<div class="heatstats">
@@ -40,6 +39,9 @@ export function heatmap(tasks, errs, n, o = {}) {
     <div class="good"><span>بلا أي خطأ</span><b>${noErr} من ${n}</b></div></div>`;
   if (!kinds.size) return `${stats}<div class="heatinfo ok">لا توجد أخطاء مسجّلة بعد. تظهر هنا لحظة تشغيل المتدربين لحلولهم.</div>`;
   const cols = o.overall ? [{ id: "*", head: "كل التمارين" }] : tasks.map((t, i) => ({ id: t.id, head: `تمرين ${i + 1}`, sub: short(t.title), title: t.title }));
+  // how many trainees handed in each exercise (one plain row, per lecture only)
+  const doneOf = (id) => new Set((o.subs || []).filter((x) => x.task_id === id).map((x) => x.user_id)).size;
+  const doneRow = o.overall ? "" : `<tr class="done"><td class="kind">عدد من سلّم</td>${cols.map((c) => `<td><b>${doneOf(c.id)} من ${n}</b></td>`).join("")}</tr>`;
   const cnt = (k, c) => cell.get(k + "|" + c)?.size || 0;
   const pct = (c) => Math.min(100, Math.round((c / N) * 100));
   const rows = [...kinds].map(([k, label]) => ({ k, label, max: Math.max(...cols.map((c) => cnt(k, c.id))) })).filter((r) => r.max).sort((a, b) => b.max - a.max);
@@ -54,6 +56,6 @@ export function heatmap(tasks, errs, n, o = {}) {
   const td = (c) => !c ? `<td><span class="hc zero">0%</span></td>`
     : `<td><span class="hc h${level(c)}" title="${c} من ${n}"><b>${pct(c)}%</b><small>${c} من ${n}</small></span></td>`;
   return `${banner}${stats}<div class="scroll-x"><table class="heat${o.overall ? " one" : ""}"><thead><tr><th>نوع الخطأ</th>${cols.map((c) => `<th${c.title ? ` title="${esc(c.title)}"` : ""}>${c.sub ? esc(c.sub) : c.head}</th>`).join("")}</tr></thead>
-    <tbody>${rows.map((r) => `<tr><td class="kind">${esc(r.label)}</td>${cols.map((c) => td(cnt(r.k, c.id))).join("")}</tr>`).join("")}</tbody></table></div>
+    <tbody>${doneRow}${rows.map((r) => `<tr><td class="kind">${esc(r.label)}</td>${cols.map((c) => td(cnt(r.k, c.id))).join("")}</tr>`).join("")}</tbody></table></div>
     <p class="heatkey">كل خانة: كم متدربًا من الفصل وقع في هذا الخطأ، ونسبتهم من الفصل. <span><i class="hc h1"></i>أقل من 20%</span><span><i class="hc h2"></i>من 20%: انتبه</span><span><i class="hc h3"></i>من 40%: توقف واشرح</span></p>`;
 }
