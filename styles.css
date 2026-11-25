@@ -233,3 +233,5 @@ table.heat.one th:not(:first-child){min-width:160px}
 .heatstats .bad b{color:var(--bad)} .heatstats .good b{color:var(--ok)}
 @media (max-width:520px){.heatstats{grid-template-columns:1fr 1fr}}
 table.heat tr.done td{padding-bottom:10px;border-bottom:2px solid var(--line,#ddd)} table.heat tr.done b{font-size:15px}
+.heatstats.three{grid-template-columns:1fr 1fr 1fr} @media (max-width:520px){.heatstats.three{grid-template-columns:1fr 1fr 1fr}.heatstats.three b{font-size:22px}.heatstats.three span{font-size:12px}}
+.heatstats.three>div{min-width:0} @media (max-width:520px){.heatstats.three{gap:8px}.heatstats.three>div{padding:12px 10px}.heatstats.three>div b{font-size:20px;white-space:nowrap}.heatstats.three>div span{font-size:12px}}

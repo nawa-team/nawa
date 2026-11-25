@@ -32,11 +32,14 @@ export function heatmap(tasks, errs, n, o = {}) {
     const k = errKind(e.message); kinds.set(k.key, k.label); erred.add(e.user_id);
     add(k.key + "|" + e.task_id, e.user_id); add(k.key + "|*", e.user_id);
   }
-  // two numbers that add up to the class: who made a mistake, and who did not
-  const hadErr = Math.min(erred.size, n || erred.size), noErr = Math.max((n || 0) - hadErr, 0);
-  const stats = `<div class="heatstats">
-    <div class="good"><span>بلا أي خطأ</span><b>${noErr} من ${n}</b></div>
-    <div class="bad"><span>وقعوا في خطأ</span><b>${hadErr} من ${n}</b></div></div>`;
+  // three numbers that add up to the class: handed in with no mistake, made a mistake, not handed in yet
+  const sent = new Set((o.subs || []).filter((x) => tset.has(x.task_id)).map((x) => x.user_id));
+  const hadErr = erred.size, noErr = [...sent].filter((u) => !erred.has(u)).length;
+  const notYet = Math.max((n || 0) - hadErr - noErr, 0);
+  const stats = `<div class="heatstats three">
+    <div class="good"><span>سلّموا بلا خطأ</span><b>${noErr} من ${n}</b></div>
+    <div class="bad"><span>وقعوا في خطأ</span><b>${hadErr} من ${n}</b></div>
+    <div><span>لم يسلّموا بعد</span><b>${notYet} من ${n}</b></div></div>`;
   if (!kinds.size) return `${stats}<div class="heatinfo ok">لا توجد أخطاء مسجّلة بعد. تظهر هنا لحظة تشغيل المتدربين لحلولهم.</div>`;
   const cols = o.overall ? [{ id: "*", head: "كل التمارين" }] : tasks.map((t, i) => ({ id: t.id, head: `تمرين ${i + 1}`, sub: short(t.title), title: t.title }));
   // how many trainees handed in each exercise (one plain row, per lecture only)
