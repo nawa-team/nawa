@@ -56,6 +56,12 @@ const VERDICT = { correct: ["صحيح", "ok"], partial: ["صحيح جزئيًا"
 const vchip = (v) => (v ? `<span class="chip ${VERDICT[v][1]}">${VERDICT[v][0]}</span>` : "");
 const pct = (a, b) => (a + b ? Math.round((a / (a + b)) * 100) : null);
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+// Arabic number agreement: تمرين واحد، تمرينان، 3 تمارين، 11 تمرينًا (with an optional adjective that agrees too)
+function tasksN(n, kind = "") {
+  const adj = { req: ["مطلوب", "مطلوبان", "مطلوبة", "مطلوبًا"], sent: ["مرسل", "مرسلان", "مرسلة", "مرسلًا"] }[kind] || [];
+  const [w, a] = n === 1 ? ["تمرين واحد", adj[0]] : n === 2 ? ["تمرينان", adj[1]] : n >= 3 && n <= 10 ? [`${n} تمارين`, adj[2]] : [`${n} تمرينًا`, adj[3]];
+  return a ? `${w} ${a}` : w;
+}
 
 // lecture upload. iPad/iPhone sometimes give a PDF with no type, so the name is checked too.
 async function uploadPdf(classId, file) {
@@ -246,7 +252,7 @@ async function loadTasksWithStatus(cls) {
 // a lecture is a folded list: tap the name to show its exercises
 function lecBlock(l, tasks, open = false) {
   const ts = tasks.filter((t) => t.lecture_id === l.id); const done = ts.filter((t) => t.st === "done").length;
-  return `<details class="lec"${open ? " open" : ""}><summary class="lechead">${ICON.slides}<div class="grow"><b>${esc(l.title)}</b><div class="tiny muted">${ts.length ? `أنجزت ${done} من ${ts.length} تمارين` : "لا توجد تمارين بعد"} · ${ago(l.created_at)}</div></div><span class="fold" aria-hidden="true">⌄</span></summary>
+  return `<details class="lec"${open ? " open" : ""}><summary class="lechead">${ICON.slides}<div class="grow"><b>${esc(l.title)}</b><div class="tiny muted">${ts.length ? `أنجزت ${done} من ${ts.length}` : "لا توجد تمارين بعد"} · ${ago(l.created_at)}</div></div><span class="fold" aria-hidden="true">⌄</span></summary>
     <div class="list">${ts.map(taskRow).join("")}<a href="#/t/lecture/${l.id}" class="openlec">${ICON.slides}<div class="grow t">فتح المحاضرة (الشرائح والمحرر)</div><span class="tiny">‹</span></a></div></details>`;
 }
 const taskRow = (t) => `<a href="#/t/task/${t.id}"><div class="grow"><div class="t">${esc(t.title)}</div><div class="tiny muted">${esc(t.topic)}${t.slide ? ` · الشريحة ${t.slide}` : ""}${t.target_user ? " · مُرسل لك" : ""}${t.is_extra ? " · إضافي" : ""}${t.st === "done" ? ` · سُلّم ${ago(t.sub.submitted_at)}` : ""}</div></div>
@@ -281,7 +287,7 @@ route("/t", async () => {
     ${classPicker(list, cls)}
     <div class="card" id="live">${cls.live_slide ? `<span class="chip live" style="align-self:flex-start"><span class="dot"></span> الجلسة مباشرة الآن</span><p class="small">المدرب على الشريحة ${cls.live_slide}${liveLec ? ` من «${esc(liveLec.title)}»` : ""}. افتح المحاضرة وتابع معه.</p>${slideTask ? `<a class="btn" href="#/t/task/${slideTask.id}">تمرين هذه الشريحة: ${esc(slideTask.title)}</a>` : ""}${liveLec ? `<a class="btn live" href="#/t/lecture/${liveLec.id}">فتح المحاضرة</a>` : ""}` : `<span class="chip" style="align-self:flex-start">لا توجد جلسة الآن</span><p class="small muted">عند بدء الجلسة يظهر تنبيه هنا.</p>`}</div>
     <h3>المطلوب منك</h3>
-    ${todo.length ? byLecture(todo, lecs).map((g, i) => `<details class="lec"${i === 0 ? " open" : ""}><summary class="lechead">${g.general ? ICON.code : ICON.slides}<div class="grow"><b>${esc(g.title)}</b><div class="tiny muted">${g.items.length} ${g.items.length > 2 && g.items.length < 11 ? "تمارين مطلوبة" : "تمرين مطلوب"}</div></div><span class="fold" aria-hidden="true">⌄</span></summary><div class="list">${g.items.map(taskRow).join("")}</div></details>`).join("") : `<div class="list"><div class="empty">لا توجد تمارين مفتوحة 👏</div></div>`}
+    ${todo.length ? byLecture(todo, lecs).map((g, i) => `<details class="lec"${i === 0 ? " open" : ""}><summary class="lechead">${g.general ? ICON.code : ICON.slides}<div class="grow"><b>${esc(g.title)}</b><div class="tiny muted">${tasksN(g.items.length, "req")}</div></div><span class="fold" aria-hidden="true">⌄</span></summary><div class="list">${g.items.map(taskRow).join("")}</div></details>`).join("") : `<div class="list"><div class="empty">لا توجد تمارين مفتوحة 👏</div></div>`}
     ${lecs?.length ? `<h3>المحاضرات وتمارينها</h3>${lecs.slice(0, 3).map((l) => lecBlock(l, tasks)).join("")}${lecs.length > 3 ? `<a class="btn plain" href="#/t/tasks">كل المحاضرات</a>` : ""}` : ""}`);
   if (slideTask) popSlideTask(slideTask);
   bindClassPicker(m);
@@ -299,7 +305,7 @@ route("/t/tasks", async () => {
   const m = shell("t", "/t/tasks", `<h1>المحاضرات والتمارين</h1><p class="small muted">${esc(cls.name)} · اضغط على اسم المحاضرة لعرض تمارينها.</p>
     ${classPicker(list, cls)}
     ${(lecs || []).map((l, i) => lecBlock(l, tasks, i === 0)).join("")}
-    ${loose.length ? `<details class="lec"><summary class="lechead">${ICON.code}<div class="grow"><b>${GENERAL}</b><div class="tiny muted">أرسلها المدرب بدون محاضرة · ${loose.length} ${loose.length > 2 ? "تمارين" : "تمرين"}</div></div><span class="fold" aria-hidden="true">⌄</span></summary><div class="list">${loose.map(taskRow).join("")}</div></details>` : ""}
+    ${loose.length ? `<details class="lec"><summary class="lechead">${ICON.code}<div class="grow"><b>${GENERAL}</b><div class="tiny muted">أرسلها المدرب بدون محاضرة · ${tasksN(loose.length)}</div></div><span class="fold" aria-hidden="true">⌄</span></summary><div class="list">${loose.map(taskRow).join("")}</div></details>` : ""}
     ${!lecs?.length && !tasks.length ? `<div class="card empty">لم تصلك محاضرات أو تمارين بعد.</div>` : ""}`);
   bindClassPicker(m);
 });
@@ -525,10 +531,10 @@ route("/m/class/:id", async ({ id }) => {
         return `<a href="#/m/class/${id}/p/${u.id}"><div class="grow t">${esc(u.name)}</div><span class="chip ${a && d >= a ? "ok" : ""}">سلّم ${d} من ${a}</span></a>`; }).join("") : `<div class="empty">لم ينضم أحد بعد. اعرض رمز الفصل على الشاشة.</div>`}</div></details>
     <h3>المحاضرات وتمارينها</h3>
     ${lecs?.length ? lecs.map((l, i) => { const ts = (tasks || []).filter((t) => t.lecture_id === l.id);
-      return `<details class="lec"${i === 0 ? " open" : ""}><summary class="lechead">${ICON.slides}<div class="grow"><b>${esc(l.title)}</b><div class="tiny muted">${ts.length} تمارين مرسلة · ${ago(l.created_at)}</div></div>${l.hidden ? `<span class="chip">مخفية</span>` : ""}<span class="fold" aria-hidden="true">⌄</span></summary>
+      return `<details class="lec"${i === 0 ? " open" : ""}><summary class="lechead">${ICON.slides}<div class="grow"><b>${esc(l.title)}</b><div class="tiny muted">${tasksN(ts.length, "sent")} · ${ago(l.created_at)}</div></div>${l.hidden ? `<span class="chip">مخفية</span>` : ""}<span class="fold" aria-hidden="true">⌄</span></summary>
         <div class="list">${ts.map(mTaskRow).join("")}<a href="#/m/lecture/${l.id}" class="openlec">${ICON.slides}<div class="grow t">فتح المحاضرة: العرض المباشر والمواضيع وتوليد التمارين</div><span class="tiny">‹</span></a></div></details>`; }).join("")
       : `<div class="card empty">ارفع أول محاضرة (PDF) من «رفع محاضرة جديدة» تحت.</div>`}
-    ${(() => { const loose = (tasks || []).filter((t) => !t.lecture_id); return loose.length ? `<details class="lec"><summary class="lechead">${ICON.code}<div class="grow"><b>${GENERAL}</b><div class="tiny muted">${loose.length} ${loose.length > 2 ? "تمارين" : "تمرين"} بدون محاضرة</div></div><span class="fold" aria-hidden="true">⌄</span></summary><div class="list">${loose.map(mTaskRow).join("")}</div></details>` : ""; })()}
+    ${(() => { const loose = (tasks || []).filter((t) => !t.lecture_id); return loose.length ? `<details class="lec"><summary class="lechead">${ICON.code}<div class="grow"><b>${GENERAL}</b><div class="tiny muted">${tasksN(loose.length)} بدون محاضرة</div></div><span class="fold" aria-hidden="true">⌄</span></summary><div class="list">${loose.map(mTaskRow).join("")}</div></details>` : ""; })()}
     <h3>إضافة</h3>
     <details class="card"${lecs?.length ? "" : " open"}><summary><b>＋ رفع محاضرة جديدة</b></summary>
       <form class="pane" id="up">
@@ -752,7 +758,7 @@ route("/m/lecture/:id", async ({ id }) => {
         if (to === "one" && !$("#who", m).value) return toast("لا يوجد متدربون في الفصل بعد");
         const { error } = await sb.from("tasks").insert(rows);
         if (error) return toast(friendly(error));
-        toast(`أُرسل ${rows.length} تمرين`); go("/m/class/" + lec.class_id);
+        toast(`أُرسل ${tasksN(rows.length)}`); go("/m/class/" + lec.class_id);
       };
     } catch (er) { toast(er.message, 4000); }
     b.disabled = false; b.textContent = "توليد تمارين للمواضيع المختارة";
