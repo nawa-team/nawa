@@ -1,7 +1,7 @@
 import { sb, START_HASH, $, $$, esc, toast, friendly, ai, fmtMin, ago, LOGO, ICON, route, go, render, onLeave } from "./lib.js";
 import { mountWorkspace } from "./workspace.js";
 import { openPdf, renderPage, extractText } from "./pdf.js";
-import { heatmap } from "./heat.js";
+import { heatmap, heatSummary } from "./heat.js";
 
 const app = $("#app");
 // light / dark: follows the device until the person picks one
@@ -862,7 +862,7 @@ route("/m/class/:id/p/:uid", async ({ id, uid }) => {
 route("/m/class/:id/dash", async ({ id }) => {
   loading(); await loadMe(); if (!need("trainer")) return;
   const [{ data: c }, { data: rows, error }, { data: tasks }, { data: lecs }] = await Promise.all([
-    sb.from("classes").select("name").eq("id", id).single(),
+    sb.from("classes").select("name,live_slide,live_at,live_lecture").eq("id", id).single(),
     sb.rpc("class_metrics", { p_class: id }),
     sb.from("tasks").select("id,topic,title,lecture_id,slide,created_at,submissions(user_id,submitted_at)").eq("class_id", id).order("created_at"),
     sb.from("lectures").select("id,title").eq("class_id", id).order("created_at"),
@@ -876,8 +876,14 @@ route("/m/class/:id/dash", async ({ id }) => {
   const R = rows || [], T = tasks || [];
   const subs = T.flatMap((t) => (t.submissions || []).filter((x) => x.submitted_at).map((x) => ({ task_id: t.id, user_id: x.user_id })));
   const bySlide = (a, b) => (a.slide ?? 1e9) - (b.slide ?? 1e9);
-  const heatGroups = [...(lecs || []).map((l) => ({ title: l.title, items: T.filter((t) => t.lecture_id === l.id).sort(bySlide) })),
+  const heatGroups = [...(lecs || []).map((l) => ({ id: l.id, title: l.title, items: T.filter((t) => t.lecture_id === l.id).sort(bySlide) })),
     { title: "تمارين خارج المحاضرات", items: T.filter((t) => !t.lecture_id || !(lecs || []).some((l) => l.id === t.lecture_id)) }].filter((g) => g.items.length);
+  // the open map is the lecture being taught now (live session), otherwise the newest lecture; the rest fold below it
+  fixLive(c);
+  const withLec = heatGroups.filter((g) => g.id);
+  const cur = (c?.live_slide && withLec.find((g) => g.id === c.live_lecture)) || withLec[withLec.length - 1] || heatGroups[0];
+  const past = [...withLec.filter((g) => g !== cur).reverse(), ...heatGroups.filter((g) => !g.id && g !== cur)];
+  const nTr = R.length;
   // typical time = the middle value, so one trainee who left an exercise open for hours does not distort it
   const mid = (arr) => { const v = arr.filter((x) => x != null).sort((a, b) => a - b); return v.length ? Math.round(v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2) : null; };
   const avg = (arr) => { const v = arr.filter((x) => x != null); return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null; };
@@ -891,9 +897,12 @@ route("/m/class/:id/dash", async ({ id }) => {
       <div class="kpi"><b>${fmtMin(mid(R.map((r) => r.avg_minutes)))}</b><span>الوقت المعتاد لإنجاز المهمة</span></div>
       <div class="kpi"><b>${totalT ? Math.round((doneT / totalT) * 100) : "—"}%</b><span>التمارين المسلّمة</span></div>
     </div>
-    <div class="card heatcard"><h3>خريطة الأخطاء الحرارية: كل التمارين</h3>
-      ${heatmap(T, errs, R.length, { subs, overall: true })}</div>
-    ${heatGroups.map((g) => `<div class="card heatcard"><h3>خريطة الأخطاء: ${esc(g.title)}</h3>${heatmap(g.items, errs, R.length, { subs })}</div>`).join("")}
+    ${cur ? `<div class="card heatcard"><h3>خريطة الأخطاء الحرارية ${c?.live_slide && cur.id === c.live_lecture ? `<span class="chip live"><span class="dot"></span> الجلسة المباشرة</span>` : `<span class="chip">أحدث محاضرة</span>`}</h3>
+      <p class="small muted">${esc(cur.title)}</p>${heatmap(cur.items, errs, nTr, { subs })}</div>` : ""}
+    ${past.length ? `<h3>خرائط المحاضرات السابقة</h3>${past.map((g) => { const s = heatSummary(g.items, errs, nTr, { subs });
+      if (s.empty) return `<div class="lec heatfold"><div class="lechead">${ICON.slides}<div class="grow"><b>${esc(g.title)}</b><div class="tiny heatsum l0">${esc(s.text)}</div></div></div></div>`;
+      return `<details class="lec heatfold"><summary class="lechead">${ICON.slides}<div class="grow"><b>${esc(g.title)}</b><div class="tiny heatsum l${s.level}">${esc(s.text)}</div></div><span class="fold" aria-hidden="true">⌄</span></summary>
+        <div class="heatbody">${heatmap(g.items, errs, nTr, { subs, key: false })}</div></details>`; }).join("")}` : ""}
     <div class="card"><h3>الأخطاء الشائعة</h3>${common.length ? common.map(([k, n]) => `<div class="row small"><code class="grow" style="text-align:end">${esc(k)}</code><span class="chip bad">${n} متدرب</span></div>`).join("") + `<p class="tiny muted">إذا تكرر الخطأ عند كثيرين، اشرحه للجميع من الشريحة.</p>` : `<p class="small muted">لا توجد أخطاء مسجّلة بعد.</p>`}</div>
     <div class="card scroll-x"><table class="t"><thead><tr><th>المتدرب</th><th>المسلّم</th><th>الكتابة اليدوية</th><th>وقت الحل</th><th>أثناء المحاضرة</th><th></th></tr></thead><tbody>
       ${R.map((r) => `<tr><td><a href="#/m/class/${id}/p/${r.user_id}"><b>${esc(r.full_name || "متدرب")}</b></a></td><td>${r.tasks_done} من ${r.tasks_total}</td><td ${r.typed_pct != null && r.typed_pct < 50 ? 'style="color:var(--bad);font-weight:700"' : ""}>${r.typed_pct ?? "—"}%</td><td>${fmtMin(r.avg_minutes)}</td><td>${r.in_session_pct ?? "—"}%</td><td><button class="btn plain sm" data-rm="${r.user_id}">إزالة</button></td></tr>`).join("") || `<tr><td colspan="5" class="muted">لا يوجد متدربون بعد.</td></tr>`}
