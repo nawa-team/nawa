@@ -235,3 +235,20 @@ table.heat.one th:not(:first-child){min-width:160px}
 table.heat tr.done td{padding-bottom:10px;border-bottom:2px solid var(--line,#ddd)} table.heat tr.done b{font-size:15px}
 .heatstats.three{grid-template-columns:1fr 1fr 1fr} @media (max-width:520px){.heatstats.three{grid-template-columns:1fr 1fr 1fr}.heatstats.three b{font-size:22px}.heatstats.three span{font-size:12px}}
 .heatstats.three>div{min-width:0} @media (max-width:520px){.heatstats.three{gap:8px}.heatstats.three>div{padding:12px 10px}.heatstats.three>div b{font-size:20px;white-space:nowrap}.heatstats.three>div span{font-size:12px}}
+/* heat map v2: one open map, calm summary cards, readable headings, quiet empty cells */
+.heatstats .good b,.heatstats .bad b{color:var(--ink)}
+.heatstats b i{font-style:normal}
+.heatstats .good b i{color:color-mix(in srgb,var(--ok) 75%,var(--ink))}
+.heatstats .bad b i{color:color-mix(in srgb,var(--bad) 75%,var(--ink))}
+table.heat th{white-space:normal;line-height:1.45;max-width:150px}
+table.heat th.corner{vertical-align:bottom;text-align:start;padding:0}
+table.heat th.corner span{display:block;font-size:12px;font-weight:500;white-space:nowrap}
+table.heat th.corner .c1{text-align:end;border-bottom:1px solid var(--line);padding-bottom:4px;margin-bottom:4px}
+.hc.zero{background:var(--sunk);border:1px solid var(--line);opacity:.55;min-height:46px}
+.heatnone{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted);margin:6px 0}
+.heatnone::before,.heatsum::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none;display:inline-block}
+.heatsum{display:flex;align-items:center;gap:6px;color:var(--muted)}
+.heatsum.l2::before{background:var(--warn)} .heatsum.l3::before{background:var(--bad)} .heatsum.l3{color:var(--bad)}
+.heatsum.l0::before{background:var(--ok)}
+.heatfold .heatbody{padding:4px 8px 10px}
+@media (max-width:520px){table.heat th:not(.corner){min-width:84px;font-size:12.5px}}
