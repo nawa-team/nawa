@@ -78,7 +78,6 @@ js/config.js     الإعدادات العامة فقط (رابط المشروع
 supabase/migrations   الجداول والسياسات والدوال
 supabase/functions    دوال الخادم (ai, demo)
 docs/                 محاضرة تجريبية للرفع
-.well-known/          ربط نسخة أندرويد بالموقع
 ```
 
 ## التشغيل محليًا
